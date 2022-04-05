@@ -13,50 +13,54 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 #plot parameters
-plot_freq = 20 #wait this many time iterations before plotting
+plot_freq = 50 #wait this many time iterations before plotting
 
 #material parameters
-dpar = 2     #displacements per atom/sec
-sinkStrength_i = 0.1
-sinkStrength_v = 0.05
-K_IV = 0.25
-D_i = 0.5
-D_v = 0.5
+dpar = 0.1     #displacements per atom/sec
+sinkStrength_i = 0
+sinkStrength_v = 0
+K_IV = 0.05
+D_i = 0.01
+D_v = 0.012
 
 #define geometry - rectangular slab
 xmin = 0        #meters
 xmax = 1    #meters
 ymin = 0        #meters
 ymax = 5        #meters
-numdX = 5
-numdY = 25
+numXnodes = 11
+numYnodes = 26
 
 #time discretization
 t_start = 0
-t_end = 1000    #seconds
-numdT = 10000    #TODO - bug with overflows in recomb based on t_end and numdT (stability?)
-stepT = (t_end - t_start)/numdT
+t_end = 10    #seconds
+numdT = 1001   #TODO - bug with overflows in recomb based on t_end and numdT (stability?)
+t, stepT = np.linspace(t_start, t_end, numdT, retstep=True)
+
+
+
+#if () #TODO - stability check
 
 #spatial discretization/mesh
-ci = np.zeros((numdX, numdY, numdT), dtype=float)
-cv = np.zeros((numdX, numdY, numdT), dtype=float)
-stepX = (xmax - xmin)/numdX
-stepY = (ymax - ymin)/numdY
+ci = np.zeros((numXnodes, numYnodes, numdT), dtype=float)
+cv = np.zeros((numXnodes, numYnodes, numdT), dtype=float)
+x, stepX = np.linspace(xmin, xmax, num=numXnodes, retstep=True)
+y, stepY = np.linspace(ymin, ymax, num=numYnodes, retstep=True)
 
 #BCs
 #TODO
 
 #plotting set up
 fig = plt.figure()
-ax = plt.axes(projection='3d')
+ax = plt.axes()
 
 
 #print parameters and run sim
 print("Simulation Parameters *****************")
 print("Simulation Time: ", t_end)
 print("Time step: ", stepT)
-print("delta X: ", stepX)
-print("delta Y: ", stepY, "\n")
+print("X step: ", stepX)
+print("Y step: ", stepY, "\n")
 print("Plot Update Freq: ", plot_freq, " iterations")
 
 
@@ -64,14 +68,13 @@ print("Material Parameters ********************")
 print("Vacancy Diffusion Coefficient: ", D_v)
 print("Interstitial Diffusion Coefficient: ", D_i)
 print("Recombination Coefficient (K_IV): ", K_IV)
-print("")
+print("Displacements per Atom / sec: ", dpar)
 print("****************************************\n")      
 
 #Forward Time Centered Space (FTCS) 
-#TODO: Fix time and space intervals/steps
 for t_iter in range(1, numdT-1):
-    for x_iter in range(1, numdX-1):
-        for y_iter in range(1, numdY-1):
+    for x_iter in range(1, numXnodes-1):
+        for y_iter in range(1, numYnodes-1):
             
             #compute component terms
             gen = dpar
@@ -94,7 +97,9 @@ for t_iter in range(1, numdT-1):
             #print("Vacancy: ", cv[x_iter, y_iter, t_iter + 1])
             
     #if (t_iter % plot_freq == 0):
-        #TODO - 3D plot of stuff
+
+        
+         
 
 print("Final Values: ")
 print("C_v: ", cv[x_iter, y_iter, t_iter + 1])
