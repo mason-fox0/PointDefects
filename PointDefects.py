@@ -48,7 +48,8 @@ x, stepX = np.linspace(xmin, xmax, num=numXnodes, retstep=True)
 y, stepY = np.linspace(ymin, ymax, num=numYnodes, retstep=True)
 
 #BCs
-#TODO
+ci[0,0,:] = 0   #dirichlet
+cv[0,0,:] = 0   #dirichlet
 
 #plotting set up
 fig = plt.figure()
@@ -97,7 +98,6 @@ for t_iter in range(1, numdT-1):
             #print("Vacancy: ", cv[x_iter, y_iter, t_iter + 1])
             
     #if (t_iter % plot_freq == 0):
-
         
          
 
