@@ -16,30 +16,35 @@ from matplotlib.colors import Normalize as nm
 
 def main():
     #sim parameters
-    plot_freq = 10 #wait this many time iterations before plotting
+    plot_freq = 5 #wait this many time iterations before plotting
     
     #material parameters
-    dpar = 0.0001     #displacements per atom/sec
+    flux = 1e6    #particles/cm^2*s
     sinkStrength_i = 0
     sinkStrength_v = 0
     K_IV = 0.001
     D_i = 0.25
     D_v = 0.25
+    displacement_cross_section = 3e-24   #cm^-2; 316 Stainless Steel
+    density = 7.99  #g/cm^3; 316 stainless steel
+    mass_num = 56 #iron
+    atomic_density = density * 6.022e-6 / mass_num    #atoms/cm^3
+    macro_disp_cross_section = atomic_density * displacement_cross_section #cm^-1 ; probability oif interaction per unit length traveled
+    E_threshold = 25    #eV
     
     #define geometry - rectangular slab
     xmin = 0        #meters
     xmax = 1    #meters
     ymin = 0        #meters
     ymax = 10        #meters
-    numXnodes = 10
-    numYnodes = 250
+    numXnodes = 11
+    numYnodes = 251
     
     #time discretization
     t_start = 0
-    t_end = 3   #seconds
-    numdT = 1001
+    t_end = 2   #seconds
+    numdT = 101
     t, stepT = np.linspace(t_start, t_end, numdT, retstep=True)
-    
     
     
     #if () #TODO - stability check
@@ -70,7 +75,7 @@ def main():
     print("Vacancy Diffusion Coefficient: ", D_v)
     print("Interstitial Diffusion Coefficient: ", D_i)
     print("Recombination Coefficient (K_IV): ", K_IV)
-    print("Displacements per Atom / sec: ", dpar)
+    print("Radiation Flux: ", flux)
     print("****************************************\n")      
     
     #TODO: implement a more interesting scheme
@@ -80,16 +85,16 @@ def main():
             for y_iter in range(0, numYnodes-1):
                 
                     #compute component terms
-                    gen = dpar
-                    recomb = K_IV * ci[x_iter, y_iter, t_iter] * cv[x_iter, y_iter, t_iter]
+                    gen = flux_to_DPA(flux, xmax, xmin, macro_disp_cross_section, mass_num, E_threshold)
+                    recomb = compute_recomb(ci, cv, K_IV, x_iter, y_iter, t_iter)
                     
                     #interstitial terms
-                    laplacian_i = ci[x_iter+1, y_iter, t_iter] - 2 * ci[x_iter, y_iter, t_iter] + ci[x_iter-1, y_iter, t_iter] + ci[x_iter, y_iter+1, t_iter] - 2*ci[x_iter, y_iter, t_iter] + ci[x_iter, y_iter-1, t_iter]
-                    sink_i = sinkStrength_i * D_i * ci[x_iter, y_iter, t_iter]
+                    laplacian_i = compute_laplacian(ci, x_iter, y_iter, t_iter)
+                    sink_i = compute_sink(ci, sinkStrength_i, D_i, x_iter, y_iter, t_iter)
                     
                     #vacancy terms
-                    laplacian_v = cv[x_iter+1, y_iter, t_iter] - 2 * cv[x_iter, y_iter, t_iter] + cv[x_iter-1, y_iter, t_iter] + cv[x_iter, y_iter+1, t_iter] - 2*cv[x_iter, y_iter, t_iter] + cv[x_iter, y_iter-1, t_iter]
-                    sink_v = sinkStrength_v * D_v * cv[x_iter, y_iter, t_iter]
+                    laplacian_v =  laplacian_i = compute_laplacian(cv, x_iter, y_iter, t_iter)
+                    sink_v = compute_sink(cv, sinkStrength_v, D_v, x_iter, y_iter, t_iter)
             
                     #update next time step
                     ci[x_iter, y_iter, t_iter + 1] = stepT * D_i * laplacian_i + gen - recomb - sink_i
@@ -112,8 +117,17 @@ def main():
             
     print("Done!")
 
-#def compute_timestep():
-    #TODO: put computation here for neatness
+def flux_to_DPA(flux, xmax, xmin, macro_cs, mass_num, threshold_energy): #calculates displacements per atom per second using Kinchin-Pease model, assumes monoenergetic incident radiation in x-dir
+    return flux * macro_cs * mass_num / (4 * threshold_energy) #K-P model; Source: Olander, Motta: LWR materials Vol 1. Ch 12
+
+def compute_laplacian(func, x, y, t):
+    return func[x+1, y, t] - 2 * func[x, y, t] + func[x-1, y, t] + func[x, y+1, t] - 2*func[x, y, t] + func[x, y-1, t]
+    
+def compute_sink(func, strength, D, x, y, t):
+    return strength * D * func[x, y, t]
+
+def compute_recomb(c1, c2, KIV, x, y, t):
+    return KIV * c1[x,y,t] * c2[x,y,t]
 
 def plot_and_save(param, fname, ttl):
     #show plot of 'param' and save to filename given
