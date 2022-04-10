@@ -17,12 +17,13 @@ from matplotlib.colors import Normalize as nm
 def main():
     #sim parameters
     plot_freq = 5 #wait this many time iterations before plotting
+    tolerance = 1e-10
     
     #material parameters
-    flux = 1e6    #particles/cm^2*s
+    flux = 1e10    #particles/cm^2*s
     sinkStrength_i = 0
     sinkStrength_v = 0
-    K_IV = 0.001
+    K_IV = 0
     D_i = 0.25
     D_v = 0.25
     displacement_cross_section = 3e-24   #cm^-2; 316 Stainless Steel
@@ -112,8 +113,12 @@ def main():
             title = "Vacancy Concentration (#/m^3)"
             plot_and_save(conc, filename, title)
             
-            
-        #TODO: stop loop early if converged
+        #TODO: check if this actually works
+        if ((np.average(cv[:,:, t_iter+1])-np.average(cv[:,:, t_iter]) < tolerance) and (np.average(ci[:,:, t_iter+1]) - np.average(cv[:,:, t_iter]) < tolerance) and t_iter >= 3):
+            print(np.average(cv[:,:, t_iter+1]))
+            print("Steady State")
+            print("Time: ", t_iter*stepT)
+            return
             
     print("Done!")
 
