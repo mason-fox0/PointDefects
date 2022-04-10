@@ -16,16 +16,16 @@ from matplotlib.colors import Normalize as nm
 
 def main():
     #sim parameters
-    plot_freq = 5 #wait this many time iterations before plotting
-    tolerance = 1e-10
+    plot_freq = 5  #wait this many time iterations before plotting
+    tolerance = 1e-8
     
     #material parameters
-    flux = 1e10    #particles/cm^2*s
+    flux = 1e8    #particles/cm^2*s
     sinkStrength_i = 0
     sinkStrength_v = 0
-    K_IV = 0
-    D_i = 0.25
-    D_v = 0.25
+    K_IV = 4
+    D_i = 1
+    D_v = 1
     displacement_cross_section = 3e-24   #cm^-2; 316 Stainless Steel
     density = 7.99  #g/cm^3; 316 stainless steel
     mass_num = 56 #iron
@@ -37,14 +37,14 @@ def main():
     xmin = 0        #meters
     xmax = 1    #meters
     ymin = 0        #meters
-    ymax = 10        #meters
-    numXnodes = 11
-    numYnodes = 251
+    ymax = 1        #meters
+    numXnodes = 51
+    numYnodes = 51
     
     #time discretization
     t_start = 0
-    t_end = 2   #seconds
-    numdT = 101
+    t_end = 2001   #seconds
+    numdT = 20001
     t, stepT = np.linspace(t_start, t_end, numdT, retstep=True)
     
     
@@ -79,7 +79,7 @@ def main():
     print("Radiation Flux: ", flux)
     print("****************************************\n")      
     
-    #TODO: implement a more interesting scheme
+    #TODO: implement a more stable scheme
     #Forward Time Centered Space (FTCS) 
     for t_iter in range(0, numdT-1):
         for x_iter in range(0, numXnodes-1):
@@ -94,15 +94,16 @@ def main():
                     sink_i = compute_sink(ci, sinkStrength_i, D_i, x_iter, y_iter, t_iter)
                     
                     #vacancy terms
-                    laplacian_v =  laplacian_i = compute_laplacian(cv, x_iter, y_iter, t_iter)
+                    laplacian_v = compute_laplacian(cv, x_iter, y_iter, t_iter)
                     sink_v = compute_sink(cv, sinkStrength_v, D_v, x_iter, y_iter, t_iter)
             
                     #update next time step
-                    ci[x_iter, y_iter, t_iter + 1] = stepT * D_i * laplacian_i + gen - recomb - sink_i
-                    cv[x_iter, y_iter, t_iter + 1] = stepT * D_v * laplacian_v + gen - recomb - sink_v
-    
+                    ci[x_iter, y_iter, t_iter + 1] = stepT * D_i * laplacian_i + gen - recomb - sink_i + ci[x_iter, y_iter, t_iter]
+                    cv[x_iter, y_iter, t_iter + 1] = stepT * D_v * laplacian_v + gen - recomb - sink_v + cv[x_iter, y_iter, t_iter]
+
         #plot and save png        
         if (t_iter % plot_freq == 0 or t_iter == numdT-2):
+            
             conc = np.transpose(ci[:,:,t_iter]) #transpose to make x/y axis plot correctly
             filename = "".join(["ci_",str(t_iter),".png"]) #make filename string instead of tuple
             title = "Interstitial Concentration (#/m^3)"
@@ -112,13 +113,7 @@ def main():
             filename = "".join(["cv_",str(t_iter),".png"]) #make filename string instead of tuple
             title = "Vacancy Concentration (#/m^3)"
             plot_and_save(conc, filename, title)
-            
-        #TODO: check if this actually works
-        if ((np.average(cv[:,:, t_iter+1])-np.average(cv[:,:, t_iter]) < tolerance) and (np.average(ci[:,:, t_iter+1]) - np.average(cv[:,:, t_iter]) < tolerance) and t_iter >= 3):
-            print(np.average(cv[:,:, t_iter+1]))
-            print("Steady State")
-            print("Time: ", t_iter*stepT)
-            return
+        
             
     print("Done!")
 
@@ -137,7 +132,7 @@ def compute_recomb(c1, c2, KIV, x, y, t):
 def plot_and_save(param, fname, ttl):
     #show plot of 'param' and save to filename given
     plt.title(ttl)
-    plt.pcolor(param,edgecolors='none', norm=nm()) #TODO: Investigate why plots are so boring (scaling??)
+    plt.pcolormesh(param,edgecolors='none', norm=nm())
     plt.savefig(fname)
     plt.show()
    
