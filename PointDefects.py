@@ -17,13 +17,12 @@ from matplotlib.colors import Normalize as nm
 def main():
     #sim parameters
     plot_freq = 5  #wait this many time iterations before plotting
-    tolerance = 1e-8
     
     #material parameters
-    flux = 1e8    #particles/cm^2*s
-    sinkStrength_i = 0
-    sinkStrength_v = 0
-    K_IV = 4
+    flux = 1e7    #particles/cm^2*s
+    sinkStrength_i = 0.001
+    sinkStrength_v = 0.0015
+    K_IV = 3
     D_i = 1
     D_v = 1
     displacement_cross_section = 3e-24   #cm^-2; 316 Stainless Steel
@@ -38,17 +37,14 @@ def main():
     xmax = 1    #meters
     ymin = 0        #meters
     ymax = 1        #meters
-    numXnodes = 51
-    numYnodes = 51
+    numXnodes = 26
+    numYnodes = 26
     
     #time discretization
     t_start = 0
-    t_end = 2001   #seconds
-    numdT = 20001
+    t_end = 30   #seconds
+    numdT = 301
     t, stepT = np.linspace(t_start, t_end, numdT, retstep=True)
-    
-    
-    #if () #TODO - stability check
     
     #spatial discretization/mesh
     ci = np.zeros((numXnodes, numYnodes, numdT), dtype=float)
@@ -56,9 +52,13 @@ def main():
     x, stepX = np.linspace(xmin, xmax, num=numXnodes, retstep=True)
     y, stepY = np.linspace(ymin, ymax, num=numYnodes, retstep=True)
     
+    check_stability(stepT, stepX, stepY) #does nothing at the moment
+    
     #BCs
     ci[:,0,:] = 0   #dirichlet
-    cv[0,:,:] = 0   #dirichlet
+    cv[0,:,:] = 0
+    ci[0,:,:] = 0
+    cv[:,0,:] = 0
     ci[:,numYnodes-1, :] = 0
     cv[:,numYnodes-1, :] = 0
     ci[numXnodes-1,:, :] = 0
@@ -101,23 +101,31 @@ def main():
                     ci[x_iter, y_iter, t_iter + 1] = stepT * D_i * laplacian_i + gen - recomb - sink_i + ci[x_iter, y_iter, t_iter]
                     cv[x_iter, y_iter, t_iter + 1] = stepT * D_v * laplacian_v + gen - recomb - sink_v + cv[x_iter, y_iter, t_iter]
 
-        #plot and save png        
-        if (t_iter % plot_freq == 0 or t_iter == numdT-2):
             
+        if (t_iter % plot_freq == 0 or t_iter == numdT-2): #plot and save png    
+            
+            plt.figure(figsize = (8,4))
             conc = np.transpose(ci[:,:,t_iter]) #transpose to make x/y axis plot correctly
-            filename = "".join(["ci_",str(t_iter),".png"]) #make filename string instead of tuple
-            title = "Interstitial Concentration (#/m^3)"
-            plot_and_save(conc, filename, title)
+            time = "".join(["Time: ", str(round(t_iter*stepT,3)), " sec"]) #tuple -> string
+            plt.suptitle(time)
+            plt.subplot(1,2,1)
             
+            plt.pcolormesh(conc,edgecolors='none', norm=nm(), shading='gouraud')
+            plt.title("Interstitial Conc. (m^-3)")
+            
+            plt.subplot(1,2,2)
             conc = np.transpose(cv[:,:,t_iter]) #transpose to make x/y axis plot correctly
-            filename = "".join(["cv_",str(t_iter),".png"]) #make filename string instead of tuple
-            title = "Vacancy Concentration (#/m^3)"
-            plot_and_save(conc, filename, title)
-        
+            
+            plt.pcolormesh(conc,edgecolors='none', norm=nm(), shading='gouraud')
+            plt.title("Vacancy Conc. (m^-3)")
+            
+            filename = "".join(["PointDefects",str(t_iter),".png"]) #tuple -> string
+            plt.savefig(filename, dpi = 300)
+            plt.show()
             
     print("Done!")
 
-def flux_to_DPA(flux, xmax, xmin, macro_cs, mass_num, threshold_energy): #calculates displacements per atom per second using Kinchin-Pease model, assumes monoenergetic incident radiation in x-dir
+def flux_to_DPA(flux, xmax, xmin, macro_cs, mass_num, threshold_energy): #calculates displacements per atom per second using Kinchin-Pease model, assumes monoenergetic incident radiation perpendicular to surface
     return flux * macro_cs * mass_num / (4 * threshold_energy) #K-P model; Source: Olander, Motta: LWR materials Vol 1. Ch 12
 
 def compute_laplacian(func, x, y, t):
@@ -129,13 +137,9 @@ def compute_sink(func, strength, D, x, y, t):
 def compute_recomb(c1, c2, KIV, x, y, t):
     return KIV * c1[x,y,t] * c2[x,y,t]
 
-def plot_and_save(param, fname, ttl):
-    #show plot of 'param' and save to filename given
-    plt.title(ttl)
-    plt.pcolormesh(param,edgecolors='none', norm=nm())
-    plt.savefig(fname)
-    plt.show()
-   
+def check_stability(t, x, y):
+    #TODO: implement stability check
+    return
 
 #run
 if __name__ == "__main__":
