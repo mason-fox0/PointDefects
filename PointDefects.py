@@ -37,13 +37,13 @@ def main():
     xmax = 1    #meters
     ymin = 0        #meters
     ymax = 1        #meters
-    numXnodes = 26
-    numYnodes = 26
+    numXnodes = 11
+    numYnodes = 11
     
     #time discretization
     t_start = 0
-    t_end = 30   #seconds
-    numdT = 301
+    t_end = 10  #seconds
+    numdT = 101
     t, stepT = np.linspace(t_start, t_end, numdT, retstep=True)
     
     #spatial discretization/mesh
@@ -52,7 +52,6 @@ def main():
     x, stepX = np.linspace(xmin, xmax, num=numXnodes, retstep=True)
     y, stepY = np.linspace(ymin, ymax, num=numYnodes, retstep=True)
     
-    check_stability(stepT, stepX, stepY) #does nothing at the moment
     
     #BCs
     ci[:,0,:] = 0   #dirichlet
@@ -71,6 +70,8 @@ def main():
     print("X step: ", stepX)
     print("Y step: ", stepY)
     print("Plot Update Freq: ", plot_freq, " iterations")
+    
+    #check_stability(stepT, stepX, stepY, max(D_i,D_v))  #disabled... overly restrictive
     
     print("Material Parameters ********************")
     print("Vacancy Diffusion Coefficient: ", D_v)
@@ -137,8 +138,13 @@ def compute_sink(func, strength, D, x, y, t):
 def compute_recomb(c1, c2, KIV, x, y, t):
     return KIV * c1[x,y,t] * c2[x,y,t]
 
-def check_stability(t, x, y):
-    #TODO: implement stability check
+def check_stability(dt, dx, dy, coeff):
+    #for FTCS scheme, by von Neumann stability analysis - 
+    
+    stability_cond = 1/((2*coeff) * (dx**-2 + dy**-2))
+    
+    if (dt > stability_cond):
+        raise Exception('Unstable, select a time step less than ', str(stability_cond))
     return
 
 #run
