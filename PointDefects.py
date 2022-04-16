@@ -18,13 +18,14 @@ def main():
     #sim parameters
     plot_freq = 5  #wait this many time iterations before plotting
     
+    #TODO: select realistic parameters
     #material parameters
-    flux = 1e7    #particles/cm^2*s
-    sinkStrength_i = 0.001
-    sinkStrength_v = 0.0015
-    K_IV = 3
-    D_i = 1
-    D_v = 1
+    flux = 1e28    #particles/cm^2*s
+    sinkStrength_i = 0
+    sinkStrength_v = 0
+    K_IV = 0.001
+    D_i = 10
+    D_v = 10
     displacement_cross_section = 3e-24   #cm^-2; 316 Stainless Steel
     density = 7.99  #g/cm^3; 316 stainless steel
     mass_num = 56 #iron
@@ -34,16 +35,16 @@ def main():
     
     #define geometry - rectangular slab
     xmin = 0        #meters
-    xmax = 1    #meters
+    xmax = 0.5    #meters
     ymin = 0        #meters
     ymax = 1        #meters
-    numXnodes = 11
-    numYnodes = 11
+    numXnodes = 21
+    numYnodes = 41
     
     #time discretization
     t_start = 0
     t_end = 10  #seconds
-    numdT = 101
+    numdT = 501
     t, stepT = np.linspace(t_start, t_end, numdT, retstep=True)
     
     #spatial discretization/mesh
@@ -104,21 +105,23 @@ def main():
 
             
         if (t_iter % plot_freq == 0 or t_iter == numdT-2): #plot and save png    
-            
+            #TODO: edit colorbars to not mess up formatting
             plt.figure(figsize = (8,4))
             conc = np.transpose(ci[:,:,t_iter]) #transpose to make x/y axis plot correctly
-            time = "".join(["Time: ", str(round(t_iter*stepT,3)), " sec"]) #tuple -> string
+            time = "".join(["Time: ", str(r'{:.3f}'.format(t_iter*stepT)), " sec"]) #tuple -> string, keep following zeros in time string
             plt.suptitle(time)
             plt.subplot(1,2,1)
             
             plt.pcolormesh(conc,edgecolors='none', norm=nm(), shading='gouraud')
             plt.title("Interstitial Conc. (m^-3)")
+            plt.colorbar()
             
             plt.subplot(1,2,2)
             conc = np.transpose(cv[:,:,t_iter]) #transpose to make x/y axis plot correctly
             
             plt.pcolormesh(conc,edgecolors='none', norm=nm(), shading='gouraud')
             plt.title("Vacancy Conc. (m^-3)")
+            plt.colorbar()
             
             filename = "".join(["PointDefects",str(t_iter),".png"]) #tuple -> string
             plt.savefig(filename, dpi = 300)
@@ -139,7 +142,7 @@ def compute_recomb(c1, c2, KIV, x, y, t):
     return KIV * c1[x,y,t] * c2[x,y,t]
 
 def check_stability(dt, dx, dy, coeff):
-    #for FTCS scheme, by von Neumann stability analysis - 
+    #for FTCS scheme, by von Neumann stability analysis
     
     stability_cond = 1/((2*coeff) * (dx**-2 + dy**-2))
     
