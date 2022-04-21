@@ -9,6 +9,7 @@ Written for the final project of MATH 578 at UTK - Spring 2022
 Purpose: Simulate the diffusion of point defects (vacancies and interstitials) in a material subject to irradiation damage.
 """
 
+import math
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize as nm
@@ -16,24 +17,29 @@ from matplotlib.colors import Normalize as nm
 
 def main():
     #sim parameters
-    plot_freq = 100  #wait this many time iterations before plotting
+    plot_freq = 10  #wait this many time iterations before plotting
     
-    #TODO: select realistic parameters
-    #material parameters
+    #set material properties
     flux = 1e10    #particles/cm^2*s
-    sinkStrength_i = 0
-    sinkStrength_v = 0
-    K_IV = 0.001
-    D_i = 0.01
-    D_v = 0.01
-    
     displacement_cross_section = 100 * 1e-24   #cm^-2; 316 Stainless Steel, 1 MeV neutron (Iwamoto et. al, 2013, Fig 5) - https://doi.org/10.1080/00223131.2013.851042 
     density = 7.99  #g/cm^3; 316 stainless steel
     mass_num = 56 #iron
+    adjacent_lattice_sites = 6 
+    lattice_parameter = 3.57    #Angstroms (meter ^-10)
+    E_jump_threshold = 1    #ev/atom, energy required for vacancy to relocate to another site in lattice structure
+    E_disp_threshold = 40    #eV, energy required to produce a vacancy-interstitial pair.
+    E_incident = 1e6    #eV
+    temperature = 1000   #K
+    
+    
+    #calculate macro material parameters
     atomic_density = density * 6.022e23 / mass_num    #atoms/cm^3
     macro_disp_cross_section = atomic_density * displacement_cross_section #cm^-1 ; probability of interaction per unit length traveled
-    E_threshold = 40    #eV
-    E_incident = 1e6    #eV
+    sinkStrength_i = 0 #TODO
+    sinkStrength_v = 0
+    K_IV = 1 #TODO
+    D_i = compute_diff('i', lattice_parameter, adjacent_lattice_sites, mass_num, E_jump_threshold, temperature)
+    D_v = compute_diff('v', lattice_parameter, adjacent_lattice_sites, mass_num, E_jump_threshold, temperature)
     
     #define geometry - rectangular slab
     xmin = 0        #meters
@@ -45,8 +51,8 @@ def main():
     
     #time discretization
     t_start = 0
-    t_end = 86400  #seconds
-    numdT = 864001
+    t_end = 100  #seconds
+    numdT = 1001
     t, stepT = np.linspace(t_start, t_end, numdT, retstep=True)
     
     #spatial discretization/mesh
@@ -90,7 +96,7 @@ def main():
             for y_iter in range(0, numYnodes-1):
                 
                     #compute component terms
-                    gen = flux_to_DPA(flux, displacement_cross_section, mass_num, E_incident, E_threshold) #displacement generates both a vacancy and interstitial
+                    gen = flux_to_DPA(flux, displacement_cross_section, mass_num, E_incident, E_disp_threshold) #displacement generates both a vacancy and interstitial
                     recomb = compute_recomb(ci, cv, K_IV, x_iter, y_iter, t_iter)
                     
                     #interstitial terms
@@ -134,6 +140,18 @@ def main():
 def flux_to_DPA(flux, micro_cs, mass_num, E_neutron, threshold_energy): #calculates displacements per atom per second using Kinchin-Pease model, assumes monoenergetic incident neutrons perpendicular to surface
     transf_param = 4.0*(1*mass_num) / (1+mass_num)**2
     return flux * micro_cs * mass_num * transf_param * E_neutron / (4.0 * threshold_energy) #K-P model; Source: Olander, Motta: LWR materials Vol 1. Ch 12, eqn 12.77
+
+def compute_diff(typeChar, lat_param, num_adj_sites, mass_num, E_jump, temp): #compute diffusion coefficients using einstein diffusion formula
+    k_Boltzmann = 8.617333e-5 #eV/K
+    vib_freq = (1 / math.sqrt(2)) * math.sqrt(E_jump/(mass_num*lat_param)) #TODO: fix units
+    
+    if (typeChar == 'v' or typeChar == 'V'): #use vacancy formula
+        return (1.0/6) * (lat_param*1e-10)**2 * num_adj_sites * vib_freq * math.exp(-E_jump/(k_Boltzmann*temp)) #TODO: fix units
+    elif (typeChar == 'i' or typeChar == 'I'): #use interstitial formula
+        return (1.0/6) * (lat_param*1e-10)**2 * num_adj_sites * vib_freq * math.exp(-E_jump/(k_Boltzmann*temp)) #TODO: fix units, make work for interstitial
+    else:
+        raise Exception("Invalid type character. Choose i or v")
+    
 
 def compute_laplacian(func, x, y, t):
     return func[x+1, y, t] - 2 * func[x, y, t] + func[x-1, y, t] + func[x, y+1, t] - 2*func[x, y, t] + func[x, y-1, t]
