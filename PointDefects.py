@@ -17,7 +17,7 @@ from matplotlib.colors import Normalize as nm
 
 def main():
     #sim parameters
-    plot_freq = 10  #wait this many time iterations before plotting
+    plot_freq = 100  #wait this many time iterations before plotting
     
     #set material properties
     flux = 1e10    #particles/cm^2*s
@@ -29,7 +29,7 @@ def main():
     E_jump_threshold = 1    #ev/atom, energy required for vacancy to relocate to another site in lattice structure
     E_disp_threshold = 40    #eV, energy required to produce a vacancy-interstitial pair.
     E_incident = 1e6    #eV
-    temperature = 1000   #K
+    temperature = 1200   #K
     
     
     #calculate macro material parameters
@@ -37,22 +37,24 @@ def main():
     macro_disp_cross_section = atomic_density * displacement_cross_section #cm^-1 ; probability of interaction per unit length traveled
     sinkStrength_i = 0 #TODO
     sinkStrength_v = 0
-    K_IV = 1 #TODO
+    K_IV = 0 #TODO
     D_i = compute_diff('i', lattice_parameter, adjacent_lattice_sites, mass_num, E_jump_threshold, temperature)
     D_v = compute_diff('v', lattice_parameter, adjacent_lattice_sites, mass_num, E_jump_threshold, temperature)
     
     #define geometry - rectangular slab
-    xmin = 0        #meters
-    xmax = 0.5    #meters
-    ymin = 0        #meters
-    ymax = 1        #meters
+    xmin = 0        #cm
+    xmax = 0.5    #cm
+    ymin = 0        #cm
+    ymax = 1        #cm
+    thickness = 0.5 #cm
     numXnodes = 11
     numYnodes = 21
+    num_atoms = (ymax-ymin)*(xmax-xmin)*thickness
     
     #time discretization
     t_start = 0
-    t_end = 100  #seconds
-    numdT = 1001
+    t_end = 6.3e8  #seconds
+    numdT = 1000001
     t, stepT = np.linspace(t_start, t_end, numdT, retstep=True)
     
     #spatial discretization/mesh
@@ -80,7 +82,7 @@ def main():
     print("Y step: ", stepY)
     print("Plot Update Freq: ", plot_freq, " iterations")
     
-    #check_stability(stepT, stepX, stepY, max(D_i,D_v))  #disabled... overly restrictive
+    check_stability(stepT, stepX, stepY, max(D_i,D_v))
     
     print("Material Parameters ********************")
     print("Vacancy Diffusion Coefficient: ", D_v)
@@ -96,7 +98,8 @@ def main():
             for y_iter in range(0, numYnodes-1):
                 
                     #compute component terms
-                    gen = flux_to_DPA(flux, displacement_cross_section, mass_num, E_incident, E_disp_threshold) #displacement generates both a vacancy and interstitial
+                    gen = num_atoms*flux_to_DPA(flux, displacement_cross_section, mass_num, E_incident, E_disp_threshold) #TODO: investigate this term - displacements per atom -> want displacements per cm^2 #displacement generates both a vacancy and interstitial
+                    print(gen)
                     recomb = compute_recomb(ci, cv, K_IV, x_iter, y_iter, t_iter)
                     
                     #interstitial terms
@@ -108,8 +111,8 @@ def main():
                     sink_v = compute_sink(cv, sinkStrength_v, D_v, x_iter, y_iter, t_iter)
             
                     #update next time step
-                    ci[x_iter, y_iter, t_iter + 1] = stepT * D_i * laplacian_i + gen - recomb - sink_i + ci[x_iter, y_iter, t_iter]
-                    cv[x_iter, y_iter, t_iter + 1] = stepT * D_v * laplacian_v + gen - recomb - sink_v + cv[x_iter, y_iter, t_iter]
+                    ci[x_iter, y_iter, t_iter + 1] = stepT * (D_i * laplacian_i + gen - recomb - sink_i) + ci[x_iter, y_iter, t_iter]
+                    cv[x_iter, y_iter, t_iter + 1] = stepT * (D_v * laplacian_v + gen - recomb - sink_v) + cv[x_iter, y_iter, t_iter]
 
             
         if (t_iter % plot_freq == 0 or t_iter == numdT-2): #plot and save png    
@@ -121,14 +124,14 @@ def main():
             plt.subplot(1,2,1)
             
             plt.pcolormesh(conc,edgecolors='none', norm=nm(), shading='gouraud')
-            plt.title("Interstitial Conc. (m^-3)")
+            plt.title("Interstitial Conc. (cm^-3)")
             plt.colorbar()
             
             plt.subplot(1,2,2)
             conc = np.transpose(cv[:,:,t_iter]) #transpose to make x/y axis plot correctly
             
             plt.pcolormesh(conc,edgecolors='none', norm=nm(), shading='gouraud')
-            plt.title("Vacancy Conc. (m^-3)")
+            plt.title("Vacancy Conc. (cm^-3)")
             plt.colorbar()
             
             filename = "".join(["PointDefects",str(t_iter),".png"]) #tuple -> string
@@ -143,12 +146,13 @@ def flux_to_DPA(flux, micro_cs, mass_num, E_neutron, threshold_energy): #calcula
 
 def compute_diff(typeChar, lat_param, num_adj_sites, mass_num, E_jump, temp): #compute diffusion coefficients using einstein diffusion formula
     k_Boltzmann = 8.617333e-5 #eV/K
-    vib_freq = (1 / math.sqrt(2)) * math.sqrt(E_jump/(mass_num*lat_param)) #TODO: fix units
+    conv_fac = 9.64853e27 #convert 1 eV/(angstroms^2 * amu) to s^-2
+    vib_freq = (1 / math.sqrt(2)) * math.sqrt(E_jump/(mass_num*lat_param**2)*conv_fac)
     
     if (typeChar == 'v' or typeChar == 'V'): #use vacancy formula
-        return (1.0/6) * (lat_param*1e-10)**2 * num_adj_sites * vib_freq * math.exp(-E_jump/(k_Boltzmann*temp)) #TODO: fix units
+        return (1.0/6) * (lat_param*1e-10)**2 * num_adj_sites * vib_freq * math.exp(-E_jump/(k_Boltzmann*temp)) #m^2/s
     elif (typeChar == 'i' or typeChar == 'I'): #use interstitial formula
-        return (1.0/6) * (lat_param*1e-10)**2 * num_adj_sites * vib_freq * math.exp(-E_jump/(k_Boltzmann*temp)) #TODO: fix units, make work for interstitial
+        return (1.0/6) * (lat_param*1e-10)**2 * num_adj_sites * vib_freq * math.exp(-E_jump/(k_Boltzmann*temp)) #TODO: make work for interstitial
     else:
         raise Exception("Invalid type character. Choose i or v")
     
