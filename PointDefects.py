@@ -5,8 +5,12 @@ Created on Mon Apr  4 09:34:13 2022
 
 @author: Mason Fox
 Written for the final project of MATH 578 at UTK - Spring 2022
-
 Purpose: Simulate the diffusion of point defects (vacancies and interstitials) in a material subject to irradiation damage.
+
+Inputs: plotting frequency, radiation flux density, incident radiation energy, temperature, material properties (macro and atomic scale), threshold energies, material geometry, number of spatial nodes, number of time points desired.
+Outputs: Vacancy and Interstitial concentrations plotted as a function of space
+
+Numerical Method: Finite difference method with adams-bashforth 3 step method
 """
 
 import math
@@ -20,15 +24,15 @@ def main():
     plot_freq = 100  #wait this many time iterations before plotting
     
     #set material properties
-    flux = 1e10    #particles/cm^2*s
+    flux = 1e12    #particles/cm^2*s
     displacement_cross_section = 100 * 1e-24   #cm^-2; 316 Stainless Steel, 1 MeV neutron (Iwamoto et. al, 2013, Fig 5) - https://doi.org/10.1080/00223131.2013.851042 
     density = 7.99  #g/cm^3; 316 stainless steel
     mass_num = 56 #iron
-    adjacent_lattice_sites = 6 
-    lattice_parameter = 3.57    #Angstroms (meter ^-10)
-    E_jump_threshold = 1    #ev/atom, energy required for vacancy to relocate to another site in lattice structure
+    adjacent_lattice_sites = 6 #steel is Face-Centered Cubic
+    lattice_parameter = 3.57    #Angstroms (cm ^-8)
+    E_jump_threshold = 0.93    #ev/atom, energy required for vacancy to relocate to another site in lattice structure
     E_disp_threshold = 40    #eV, energy required to produce a vacancy-interstitial pair.
-    E_incident = 1e6    #eV
+    E_incident = 1e6    #eV (assumes monoenergetic, could expand to read tabulated data or cross-section data libs)
     temperature = 1200   #K
     
     
@@ -53,12 +57,12 @@ def main():
     
     #time discretization
     t_start = 0
-    t_end = 6.3e8  #seconds
-    numdT = 1000001
+    t_end = 60000  #seconds
+    numdT = 100001
     t, stepT = np.linspace(t_start, t_end, numdT, retstep=True)
     
     #spatial discretization/mesh
-    ci = np.zeros((numXnodes, numYnodes, numdT), dtype=float)
+    ci = np.zeros((numXnodes, numYnodes, numdT), dtype=float) #initial values all zero
     cv = np.zeros((numXnodes, numYnodes, numdT), dtype=float)
     x, stepX = np.linspace(xmin, xmax, num=numXnodes, retstep=True)
     y, stepY = np.linspace(ymin, ymax, num=numYnodes, retstep=True)
@@ -82,7 +86,7 @@ def main():
     print("Y step: ", stepY)
     print("Plot Update Freq: ", plot_freq, " iterations")
     
-    check_stability(stepT, stepX, stepY, max(D_i,D_v))
+    #check_stability(stepT, stepX, stepY, max(D_i,D_v))
     
     print("Material Parameters ********************")
     print("Vacancy Diffusion Coefficient: ", D_v)
@@ -91,32 +95,33 @@ def main():
     print("Radiation Flux: ", flux)
     print("****************************************\n")      
     
-    #TODO: implement a more stable scheme
-    #Forward Time Centered Space (FTCS) 
-    for t_iter in range(0, numdT-1):
+   ############################################################
+       
+    gen = atomic_density * flux_to_DPA(flux, displacement_cross_section, mass_num, E_incident, E_disp_threshold) #in reality displacement x-section and threshold energy would change with concentration, assume const
+    
+    dCidt_step_prev = 0 #track previous values for multistep method
+    dCidt_step_prevprev = 0 
+    
+    #solver
+    for t_iter in range(2, numdT-1):
         for x_iter in range(0, numXnodes-1):
             for y_iter in range(0, numYnodes-1):
                 
-                    #compute component terms
-                    gen = num_atoms*flux_to_DPA(flux, displacement_cross_section, mass_num, E_incident, E_disp_threshold) #TODO: investigate this term - displacements per atom -> want displacements per cm^2 #displacement generates both a vacancy and interstitial
-                    print(gen)
-                    recomb = compute_recomb(ci, cv, K_IV, x_iter, y_iter, t_iter)
-                    
-                    #interstitial terms
-                    laplacian_i = compute_laplacian(ci, x_iter, y_iter, t_iter)
-                    sink_i = compute_sink(ci, sinkStrength_i, D_i, x_iter, y_iter, t_iter)
-                    
-                    #vacancy terms
-                    laplacian_v = compute_laplacian(cv, x_iter, y_iter, t_iter)
-                    sink_v = compute_sink(cv, sinkStrength_v, D_v, x_iter, y_iter, t_iter)
-            
-                    #update next time step
-                    ci[x_iter, y_iter, t_iter + 1] = stepT * (D_i * laplacian_i + gen - recomb - sink_i) + ci[x_iter, y_iter, t_iter]
-                    cv[x_iter, y_iter, t_iter + 1] = stepT * (D_v * laplacian_v + gen - recomb - sink_v) + cv[x_iter, y_iter, t_iter]
-
+                recomb = compute_recomb(ci, cv, K_IV, x_iter, y_iter, t_iter)
+                
+                #update stored previous values for multistep
+                dCidt_step_prevprevprev = dCidt_step_prevprev
+                dCidt_step_prevprev = dCidt_step_prev
+                dCidt_step_prev = compute_dcdt(ci[x_iter, y_iter, t_iter - 1], D_i, gen, recomb, x_iter, y_iter, t_iter - 1)
+                
+                #calc next step
+                ci[x_iter, y_iter, t_iter] = ci[x_iter, y_iter, t_iter - 1] + stepT * ((23/12) * dCidt_step_prev - (4/3) * dCidt_step_prevprev + (5/12) * dCidt_step_prevprevprev)
+                cv[x_iter, y_iter, t_iter] = cv[x_iter, y_iter, t_iter - 1] + stepT * ((23/12) * dCvdt_step_prev - (4/3) * dCvdt_step_prevprev + (5/12) * dCvdt_step_prevprevprev)
+                
+                
+                
             
         if (t_iter % plot_freq == 0 or t_iter == numdT-2): #plot and save png    
-            #TODO: edit colorbars to not mess up formatting
             plt.figure(figsize = (8,4))
             conc = np.transpose(ci[:,:,t_iter]) #transpose to make x/y axis plot correctly
             time = "".join(["Time: ", str(r'{:.3f}'.format(t_iter*stepT)), " sec"]) #tuple -> string, keep following zeros in time string
@@ -140,22 +145,29 @@ def main():
             
     print("Done!")
 
+##############functions
+
+def ab3(y_2, y_1, y_0, funct, h,):
+    #solve using 3rd order adams-bashford multistep method. y values are solutions at prev step, funct is the diff eq we are solving
+    y_3 = y_2 + h*((23/12) * funct(y_2) - (4/3) * funct(y_1) + (5/12) * funct(y_0))
+    
+    return y_3
+
 def flux_to_DPA(flux, micro_cs, mass_num, E_neutron, threshold_energy): #calculates displacements per atom per second using Kinchin-Pease model, assumes monoenergetic incident neutrons perpendicular to surface
     transf_param = 4.0*(1*mass_num) / (1+mass_num)**2
     return flux * micro_cs * mass_num * transf_param * E_neutron / (4.0 * threshold_energy) #K-P model; Source: Olander, Motta: LWR materials Vol 1. Ch 12, eqn 12.77
 
 def compute_diff(typeChar, lat_param, num_adj_sites, mass_num, E_jump, temp): #compute diffusion coefficients using einstein diffusion formula
     k_Boltzmann = 8.617333e-5 #eV/K
-    conv_fac = 9.64853e27 #convert 1 eV/(angstroms^2 * amu) to s^-2
+    conv_fac = 9.64853e27 #convert eV/(angstroms^2 * amu) to s^-2
     vib_freq = (1 / math.sqrt(2)) * math.sqrt(E_jump/(mass_num*lat_param**2)*conv_fac)
     
     if (typeChar == 'v' or typeChar == 'V'): #use vacancy formula
-        return (1.0/6) * (lat_param*1e-10)**2 * num_adj_sites * vib_freq * math.exp(-E_jump/(k_Boltzmann*temp)) #m^2/s
+        return (1.0/6) * (lat_param*1e-8)**2 * num_adj_sites * vib_freq * math.exp(-E_jump/(k_Boltzmann*temp)) #cm^2/s
     elif (typeChar == 'i' or typeChar == 'I'): #use interstitial formula
-        return (1.0/6) * (lat_param*1e-10)**2 * num_adj_sites * vib_freq * math.exp(-E_jump/(k_Boltzmann*temp)) #TODO: make work for interstitial
+        return (1.0/6) * (lat_param*1e-8)**2 * num_adj_sites * vib_freq * math.exp(-E_jump/(k_Boltzmann*temp)) #TODO: make work for interstitial
     else:
         raise Exception("Invalid type character. Choose i or v")
-    
 
 def compute_laplacian(func, x, y, t):
     return func[x+1, y, t] - 2 * func[x, y, t] + func[x-1, y, t] + func[x, y+1, t] - 2*func[x, y, t] + func[x, y-1, t]
@@ -166,8 +178,13 @@ def compute_sink(func, strength, D, x, y, t):
 def compute_recomb(c1, c2, KIV, x, y, t):
     return KIV * c1[x,y,t] * c2[x,y,t]
 
+def compute_dcdt(conc, difCoef, generation, recombination, x, y, t):
+    #compute concentration balance - Olander, Motta Ch. 13
+    return difCoef * compute_laplacian(conc, x, y, t) + generation - recombination - compute_sink(conc, difCoef, x, y, t) 
+
 def check_stability(dt, dx, dy, coeff):
     #for FTCS scheme, by von Neumann stability analysis. Considers only diffusion terms
+    #TODO update for new scheme
     
     stability_cond = 1/((2*coeff) * (dx**-2 + dy**-2))
     
