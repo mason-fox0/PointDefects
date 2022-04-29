@@ -21,10 +21,10 @@ from matplotlib.colors import Normalize as nm
 
 def main():
     #sim parameters
-    plot_freq = 100  #wait this many time iterations before plotting
+    plot_freq = 1  #wait this many time iterations before plotting
     
     #set material properties
-    flux = 1e12    #particles/cm^2*s
+    flux = 1e3    #particles/cm^2*s
     displacement_cross_section = 100 * 1e-24   #cm^-2; 316 Stainless Steel, 1 MeV neutron (Iwamoto et. al, 2013, Fig 5) - https://doi.org/10.1080/00223131.2013.851042 
     density = 7.99  #g/cm^3; 316 stainless steel
     mass_num = 56 #iron
@@ -41,9 +41,9 @@ def main():
     macro_disp_cross_section = atomic_density * displacement_cross_section #cm^-1 ; probability of interaction per unit length traveled
     sinkStrength_i = 0 #TODO
     sinkStrength_v = 0
-    K_IV = 0 #TODO
     D_i = compute_diff('i', lattice_parameter, adjacent_lattice_sites, mass_num, E_jump_threshold, temperature)
     D_v = compute_diff('v', lattice_parameter, adjacent_lattice_sites, mass_num, E_jump_threshold, temperature)
+    K_IV = adjacent_lattice_sites * (D_i + D_v) / (lattice_parameter * 1e-8) 
     
     #define geometry - rectangular slab
     xmin = 0        #cm
@@ -57,8 +57,8 @@ def main():
     
     #time discretization
     t_start = 0
-    t_end = 60000  #seconds
-    numdT = 100001
+    t_end = 300  #seconds
+    numdT = 31
     t, stepT = np.linspace(t_start, t_end, numdT, retstep=True)
     
     #spatial discretization/mesh
@@ -97,22 +97,29 @@ def main():
     
    ############################################################
        
-    gen = atomic_density * flux_to_DPA(flux, displacement_cross_section, mass_num, E_incident, E_disp_threshold) #in reality displacement x-section and threshold energy would change with concentration, assume const
+    gen = atomic_density * flux_to_DPA(flux, displacement_cross_section, mass_num, E_incident, E_disp_threshold)
     
-    dCidt_step_prev = 0 #track previous values for multistep method
-    dCidt_step_prevprev = 0 
+    dCidt_step_prev = 0 #track previous values for multistep method, need to start first two steps.
+    dCidt_step_prevprev = 0 #note: some error introduced here by assuming zero instead of computing first step using starter method
+    dCvdt_step_prev = 0
+    dCvdt_step_prevprev = 0
     
-    #solver
-    for t_iter in range(2, numdT-1):
+    #solver - Adams-Bashforth 3 step method (explicit)
+    for t_iter in range(1, numdT-1):
         for x_iter in range(0, numXnodes-1):
             for y_iter in range(0, numYnodes-1):
                 
-                recomb = compute_recomb(ci, cv, K_IV, x_iter, y_iter, t_iter)
+                recomb = compute_recomb(ci, cv, K_IV, x_iter, y_iter, t_iter-1)
                 
                 #update stored previous values for multistep
                 dCidt_step_prevprevprev = dCidt_step_prevprev
                 dCidt_step_prevprev = dCidt_step_prev
-                dCidt_step_prev = compute_dcdt(ci[x_iter, y_iter, t_iter - 1], D_i, gen, recomb, x_iter, y_iter, t_iter - 1)
+                dCidt_step_prev = compute_dcdt(ci, D_i, gen, recomb, sinkStrength_i, x_iter, y_iter, t_iter - 1)
+                
+                dCvdt_step_prevprevprev = dCvdt_step_prevprev
+                dCvdt_step_prevprev = dCvdt_step_prev
+                dCvdt_step_prev = compute_dcdt(cv, D_v, gen, recomb, sinkStrength_v, x_iter, y_iter, t_iter - 1)
+                
                 
                 #calc next step
                 ci[x_iter, y_iter, t_iter] = ci[x_iter, y_iter, t_iter - 1] + stepT * ((23/12) * dCidt_step_prev - (4/3) * dCidt_step_prevprev + (5/12) * dCidt_step_prevprevprev)
@@ -147,12 +154,6 @@ def main():
 
 ##############functions
 
-def ab3(y_2, y_1, y_0, funct, h,):
-    #solve using 3rd order adams-bashford multistep method. y values are solutions at prev step, funct is the diff eq we are solving
-    y_3 = y_2 + h*((23/12) * funct(y_2) - (4/3) * funct(y_1) + (5/12) * funct(y_0))
-    
-    return y_3
-
 def flux_to_DPA(flux, micro_cs, mass_num, E_neutron, threshold_energy): #calculates displacements per atom per second using Kinchin-Pease model, assumes monoenergetic incident neutrons perpendicular to surface
     transf_param = 4.0*(1*mass_num) / (1+mass_num)**2
     return flux * micro_cs * mass_num * transf_param * E_neutron / (4.0 * threshold_energy) #K-P model; Source: Olander, Motta: LWR materials Vol 1. Ch 12, eqn 12.77
@@ -176,11 +177,12 @@ def compute_sink(func, strength, D, x, y, t):
     return strength * D * func[x, y, t]
 
 def compute_recomb(c1, c2, KIV, x, y, t):
+    print(c1[x,y,t] * c2[x,y,t])
     return KIV * c1[x,y,t] * c2[x,y,t]
 
-def compute_dcdt(conc, difCoef, generation, recombination, x, y, t):
+def compute_dcdt(conc, difCoef, generation, recombination, sinkStrength, x, y, t):
     #compute concentration balance - Olander, Motta Ch. 13
-    return difCoef * compute_laplacian(conc, x, y, t) + generation - recombination - compute_sink(conc, difCoef, x, y, t) 
+    return difCoef * compute_laplacian(conc, x, y, t) + generation - recombination - compute_sink(conc, sinkStrength, difCoef, x, y, t) 
 
 def check_stability(dt, dx, dy, coeff):
     #for FTCS scheme, by von Neumann stability analysis. Considers only diffusion terms
