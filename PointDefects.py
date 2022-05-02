@@ -152,8 +152,8 @@ def compute_diff(typeChar, lat_param, num_adj_sites, mass_num, E_jump, temp): #c
     else:
         raise Exception("Invalid type character. Choose i or v")
 
-def compute_laplacian(func, x, y, t):
-    return func[x+1, y, t] - 2 * func[x, y, t] + func[x-1, y, t] + func[x, y+1, t] - 2*func[x, y, t] + func[x, y-1, t]
+def compute_laplacian(func, x, y, t, xstep, ystep):
+    return (func[x+1, y, t] - 2 * func[x, y, t] + func[x-1, y, t])/(xstep**2) + (func[x, y+1, t] - 2*func[x, y, t] + func[x, y-1, t])/(ystep**2)
     
 def compute_sink(func, strength, D, x, y, t):
     return strength * D * func[x, y, t]
