@@ -24,11 +24,12 @@ def main():
     plot_freq = 1  #wait this many time iterations before plotting
     
     #set material properties
-    flux = 1e3    #particles/cm^2*s
+    flux = 1e8    #particles/cm^2*s
     displacement_cross_section = 100 * 1e-24   #cm^-2; 316 Stainless Steel, 1 MeV neutron (Iwamoto et. al, 2013, Fig 5) - https://doi.org/10.1080/00223131.2013.851042 
     density = 7.99  #g/cm^3; 316 stainless steel
     mass_num = 56 #iron
     adjacent_lattice_sites = 6 #steel is Face-Centered Cubic
+    recomb_num = 100    #normally 50-500 depending on material, structure, and interstitial config (# energy permissible combinations of jumps for recombination)
     lattice_parameter = 3.57    #Angstroms (cm ^-8)
     E_jump_threshold = 0.93    #ev/atom, energy required for vacancy to relocate to another site in lattice structure
     E_disp_threshold = 40    #eV, energy required to produce a vacancy-interstitial pair.
@@ -43,7 +44,7 @@ def main():
     sinkStrength_v = 0
     D_i = compute_diff('i', lattice_parameter, adjacent_lattice_sites, mass_num, E_jump_threshold, temperature)
     D_v = compute_diff('v', lattice_parameter, adjacent_lattice_sites, mass_num, E_jump_threshold, temperature)
-    K_IV = adjacent_lattice_sites * (D_i + D_v) / (lattice_parameter * 1e-8) 
+    K_IV = recomb_num * (D_i + D_v) / (lattice_parameter)**2
     
     #define geometry - rectangular slab
     xmin = 0        #cm
@@ -51,14 +52,14 @@ def main():
     ymin = 0        #cm
     ymax = 1        #cm
     thickness = 0.5 #cm
-    numXnodes = 11
-    numYnodes = 21
+    numXnodes = 6
+    numYnodes = 11
     num_atoms = (ymax-ymin)*(xmax-xmin)*thickness
     
     #time discretization
     t_start = 0
-    t_end = 300  #seconds
-    numdT = 31
+    t_end = 10  #seconds
+    numdT = 1001
     t, stepT = np.linspace(t_start, t_end, numdT, retstep=True)
     
     #spatial discretization/mesh
@@ -93,38 +94,19 @@ def main():
     print("Interstitial Diffusion Coefficient: ", D_i)
     print("Recombination Coefficient (K_IV): ", K_IV)
     print("Radiation Flux: ", flux)
-    print("****************************************\n")      
+    print("****************************************\n")
     
    ############################################################
        
     gen = atomic_density * flux_to_DPA(flux, displacement_cross_section, mass_num, E_incident, E_disp_threshold)
     
-    dCidt_step_prev = 0 #track previous values for multistep method, need to start first two steps.
-    dCidt_step_prevprev = 0 #note: some error introduced here by assuming zero instead of computing first step using starter method
-    dCvdt_step_prev = 0
-    dCvdt_step_prevprev = 0
     
-    #solver - Adams-Bashforth 3 step method (explicit)
+    #TODO solver - need an implicit or IMEX method
     for t_iter in range(1, numdT-1):
         for x_iter in range(0, numXnodes-1):
             for y_iter in range(0, numYnodes-1):
                 
                 recomb = compute_recomb(ci, cv, K_IV, x_iter, y_iter, t_iter-1)
-                
-                #update stored previous values for multistep
-                dCidt_step_prevprevprev = dCidt_step_prevprev
-                dCidt_step_prevprev = dCidt_step_prev
-                dCidt_step_prev = compute_dcdt(ci, D_i, gen, recomb, sinkStrength_i, x_iter, y_iter, t_iter - 1)
-                
-                dCvdt_step_prevprevprev = dCvdt_step_prevprev
-                dCvdt_step_prevprev = dCvdt_step_prev
-                dCvdt_step_prev = compute_dcdt(cv, D_v, gen, recomb, sinkStrength_v, x_iter, y_iter, t_iter - 1)
-                
-                
-                #calc next step
-                ci[x_iter, y_iter, t_iter] = ci[x_iter, y_iter, t_iter - 1] + stepT * ((23/12) * dCidt_step_prev - (4/3) * dCidt_step_prevprev + (5/12) * dCidt_step_prevprevprev)
-                cv[x_iter, y_iter, t_iter] = cv[x_iter, y_iter, t_iter - 1] + stepT * ((23/12) * dCvdt_step_prev - (4/3) * dCvdt_step_prevprev + (5/12) * dCvdt_step_prevprevprev)
-                
                 
                 
             
@@ -177,8 +159,7 @@ def compute_sink(func, strength, D, x, y, t):
     return strength * D * func[x, y, t]
 
 def compute_recomb(c1, c2, KIV, x, y, t):
-    print(c1[x,y,t] * c2[x,y,t])
-    return KIV * c1[x,y,t] * c2[x,y,t]
+    return round(KIV * c1[x,y,t] * c2[x,y,t])
 
 def compute_dcdt(conc, difCoef, generation, recombination, sinkStrength, x, y, t):
     #compute concentration balance - Olander, Motta Ch. 13
