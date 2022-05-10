@@ -10,7 +10,7 @@ Purpose: Simulate the diffusion of point defects (vacancies and interstitials) i
 Inputs: plotting frequency, radiation flux density, incident radiation energy, temperature, material properties (macro and atomic scale), threshold energies, material geometry, number of spatial nodes, number of time points desired.
 Outputs: Vacancy and Interstitial concentrations plotted as a function of space
 
-Numerical Method: Finite difference method with adams-bashforth 3 step method
+Numerical Method: Crank-Nicholson Adams Bashforth IMEX Scheme
 """
 
 import math
@@ -33,8 +33,8 @@ def main():
     lattice_parameter = 3.57    #Angstroms (cm ^-8)
     E_jump_threshold = 0.93    #ev/atom, energy required for vacancy to relocate to another site in lattice structure
     E_disp_threshold = 40    #eV, energy required to produce a vacancy-interstitial pair.
-    E_incident = 1e6    #eV (assumes monoenergetic, could expand to read tabulated data or cross-section data libs)
-    temperature = 1200   #K
+    E_incident = 1e6    #eV (assumes monoenergetic incident radiation)
+    temperature = 800   #K
     
     
     #calculate macro material parameters
@@ -46,15 +46,18 @@ def main():
     D_v = compute_diff('v', lattice_parameter, adjacent_lattice_sites, mass_num, E_jump_threshold, temperature)
     K_IV = recomb_num * (D_i + D_v) / (lattice_parameter)**2
     
-    #define geometry - rectangular slab
+    #define geometry - square
+    s = 1 #cm (side length of square domain)
+    thickness = 0.1 #cm (doesn't do anything at the moment)
+    
+    numXnodes = 11  #ensure same spatial step sizes for simplicity
+    numYnodes = numXnodes
     xmin = 0        #cm
-    xmax = 0.5    #cm
+    xmax = s    #cm
     ymin = 0        #cm
-    ymax = 1        #cm
-    thickness = 0.5 #cm
-    numXnodes = 6
-    numYnodes = 11
+    ymax = s        #cm
     num_atoms = (ymax-ymin)*(xmax-xmin)*thickness
+    
     
     #time discretization
     t_start = 0
@@ -79,6 +82,7 @@ def main():
     ci[numXnodes-1,:, :] = 0
     cv[numXnodes-1,:, :] = 0
     
+    
     #print parameters and run sim
     print("Simulation Parameters *****************")
     print("Simulation Time: ", t_end)
@@ -86,8 +90,6 @@ def main():
     print("X step: ", stepX)
     print("Y step: ", stepY)
     print("Plot Update Freq: ", plot_freq, " iterations")
-    
-    #check_stability(stepT, stepX, stepY, max(D_i,D_v))
     
     print("Material Parameters ********************")
     print("Vacancy Diffusion Coefficient: ", D_v)
@@ -108,12 +110,14 @@ def main():
                 
                 recomb = compute_recomb(ci, cv, K_IV, x_iter, y_iter, t_iter-1)
                 
+                #code CNAB here
+                
                 
             
-        if (t_iter % plot_freq == 0 or t_iter == numdT-2): #plot and save png    
+        if (t_iter % plot_freq == 0 or t_iter == numdT-2): #plot and save png
             plt.figure(figsize = (8,4))
-            conc = np.transpose(ci[:,:,t_iter]) #transpose to make x/y axis plot correctly
-            time = "".join(["Time: ", str(r'{:.3f}'.format(t_iter*stepT)), " sec"]) #tuple -> string, keep following zeros in time string
+            conc = np.transpose(ci[:,:,t_iter]) #transpose to make x/y axis plot correctlyi
+            time = "".join(["Time: ", str(r'{:.3f}'.format(t_iter*stepT)), " sec"]) #tuple -> string, keep following zeros after decimal point
             plt.suptitle(time)
             plt.subplot(1,2,1)
             
@@ -135,7 +139,6 @@ def main():
     print("Done!")
 
 ##############functions
-
 def flux_to_DPA(flux, micro_cs, mass_num, E_neutron, threshold_energy): #calculates displacements per atom per second using Kinchin-Pease model, assumes monoenergetic incident neutrons perpendicular to surface
     transf_param = 4.0*(1*mass_num) / (1+mass_num)**2
     return flux * micro_cs * mass_num * transf_param * E_neutron / (4.0 * threshold_energy) #K-P model; Source: Olander, Motta: LWR materials Vol 1. Ch 12, eqn 12.77
@@ -151,29 +154,14 @@ def compute_diff(typeChar, lat_param, num_adj_sites, mass_num, E_jump, temp): #c
         return (1.0/6) * (lat_param*1e-8)**2 * num_adj_sites * vib_freq * math.exp(-E_jump/(k_Boltzmann*temp)) #TODO: make work for interstitial
     else:
         raise Exception("Invalid type character. Choose i or v")
-
-def compute_laplacian(func, x, y, t, xstep, ystep):
-    return (func[x+1, y, t] - 2 * func[x, y, t] + func[x-1, y, t])/(xstep**2) + (func[x, y+1, t] - 2*func[x, y, t] + func[x, y-1, t])/(ystep**2)
     
 def compute_sink(func, strength, D, x, y, t):
     return strength * D * func[x, y, t]
 
 def compute_recomb(c1, c2, KIV, x, y, t):
-    return round(KIV * c1[x,y,t] * c2[x,y,t])
+    return KIV * c1[x,y,t] * c2[x,y,t]
 
-def compute_dcdt(conc, difCoef, generation, recombination, sinkStrength, x, y, t):
-    #compute concentration balance - Olander, Motta Ch. 13
-    return difCoef * compute_laplacian(conc, x, y, t) + generation - recombination - compute_sink(conc, sinkStrength, difCoef, x, y, t) 
-
-def check_stability(dt, dx, dy, coeff):
-    #for FTCS scheme, by von Neumann stability analysis. Considers only diffusion terms
-    #TODO update for new scheme
-    
-    stability_cond = 1/((2*coeff) * (dx**-2 + dy**-2))
-    
-    if (dt > stability_cond):
-        raise Exception('Unstable, select a time step less than ', str(stability_cond))
-    return
+#############
 
 #run
 if __name__ == "__main__":
