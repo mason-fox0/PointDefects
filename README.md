@@ -9,7 +9,7 @@ vacancies and point defects. The model considers diffusion through the material,
 recombination of vacancies and interstitials, generation due to irradiation, and loss
 to various types of sinks.
 
-Method: Forward Time Centered Space (Finite Difference)
+Method: Crank-Nicholson Adams-Bashforth IMEX Scheme (Finite Difference)
 
 Output: Graphics of defect behavior over time
 
