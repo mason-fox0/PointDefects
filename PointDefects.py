@@ -15,6 +15,7 @@ Numerical Method: Crank-Nicholson Adams Bashforth IMEX Scheme
 
 import math
 import numpy as np
+import scipy.sparse as sp
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize as nm
 
@@ -31,7 +32,8 @@ def main():
     adjacent_lattice_sites = 6 #steel is Face-Centered Cubic
     recomb_num = 100    #normally 50-500 depending on material, structure, and interstitial config (# energy permissible combinations of jumps for recombination)
     lattice_parameter = 3.57    #Angstroms (cm ^-8)
-    E_jump_threshold = 0.93    #ev/atom, energy required for vacancy to relocate to another site in lattice structure
+    E_v_jump_threshold = 0.93    #ev/atom, energy required for vacancy to relocate to another site in lattice structure
+    E_i_jump_threshold = 5      #ev/atom, energy required for interstitial to diffuse #TODO: find a real value
     E_disp_threshold = 40    #eV, energy required to produce a vacancy-interstitial pair.
     E_incident = 1e6    #eV (assumes monoenergetic incident radiation)
     temperature = 800   #K
@@ -40,23 +42,23 @@ def main():
     #calculate macro material parameters
     atomic_density = density * 6.022e23 / mass_num    #atoms/cm^3
     macro_disp_cross_section = atomic_density * displacement_cross_section #cm^-1 ; probability of interaction per unit length traveled
-    sinkStrength_i = 0 #TODO
-    sinkStrength_v = 0
-    D_i = compute_diff('i', lattice_parameter, adjacent_lattice_sites, mass_num, E_jump_threshold, temperature)
-    D_v = compute_diff('v', lattice_parameter, adjacent_lattice_sites, mass_num, E_jump_threshold, temperature)
+    sinkStrength_i = 1e-4
+    sinkStrength_v = 1e-4
+    D_i = compute_diff(lattice_parameter, adjacent_lattice_sites, mass_num, E_i_jump_threshold, temperature)
+    D_v = compute_diff(lattice_parameter, adjacent_lattice_sites, mass_num, E_v_jump_threshold, temperature)
     K_IV = recomb_num * (D_i + D_v) / (lattice_parameter)**2
     
     #define geometry - square
     s = 1 #cm (side length of square domain)
-    thickness = 0.1 #cm (doesn't do anything at the moment)
+    thickness = 0.1 #cm
     
-    numXnodes = 11  #ensure same spatial step sizes for simplicity
-    numYnodes = numXnodes
+    numXnodes = 21 #note: this includes zero and final time points
+    numYnodes = numXnodes #force same spatial step sizes for simplicity
     xmin = 0        #cm
     xmax = s    #cm
     ymin = 0        #cm
     ymax = s        #cm
-    num_atoms = (ymax-ymin)*(xmax-xmin)*thickness
+    num_atoms = (ymax-ymin)*(xmax-xmin)*thickness #doesn't do anything at the moment
     
     
     #time discretization
@@ -104,6 +106,22 @@ def main():
     
     
     #TODO solver - need an implicit or IMEX method
+    alpha = [D_v * stepT / (2 * stepX**2), D_i * stepT / (2*stepX**2)]  #combine leading coefficient in CN method for simpler notation. (Note: alpha different for vacancy/interstitial)
+    n = numXnodes - 2
+    m = numYnodes - 2
+    
+    #build vacancy matrix (store as sparse for memory savings)
+    diag_main = np.repeat(1-4*alpha[0], n) #produce a vector of length n with all elements 1-4*alpha
+    diag_upper_lower = (alpha[0], n-1) #produce a vector of length n-1 for upper/lower diags
+    diag_next_upper_lower = [alpha[0], ] #TODO: how many elements in the secondary diags???
+    A_v = np.zeros(n, m) #build matrix for implicit step (doesn't include boundaries)
+    
+    
+    
+    #build interstitial matrix
+    A_i = np.zeros(n, m)
+    
+    
     for t_iter in range(1, numdT-1):
         for x_iter in range(0, numXnodes-1):
             for y_iter in range(0, numYnodes-1):
@@ -143,17 +161,13 @@ def flux_to_DPA(flux, micro_cs, mass_num, E_neutron, threshold_energy): #calcula
     transf_param = 4.0*(1*mass_num) / (1+mass_num)**2
     return flux * micro_cs * mass_num * transf_param * E_neutron / (4.0 * threshold_energy) #K-P model; Source: Olander, Motta: LWR materials Vol 1. Ch 12, eqn 12.77
 
-def compute_diff(typeChar, lat_param, num_adj_sites, mass_num, E_jump, temp): #compute diffusion coefficients using einstein diffusion formula
+def compute_diff(lat_param, num_adj_sites, mass_num, E_jump, temp): #compute diffusion coefficients using einstein diffusion formula
     k_Boltzmann = 8.617333e-5 #eV/K
     conv_fac = 9.64853e27 #convert eV/(angstroms^2 * amu) to s^-2
     vib_freq = (1 / math.sqrt(2)) * math.sqrt(E_jump/(mass_num*lat_param**2)*conv_fac)
     
-    if (typeChar == 'v' or typeChar == 'V'): #use vacancy formula
-        return (1.0/6) * (lat_param*1e-8)**2 * num_adj_sites * vib_freq * math.exp(-E_jump/(k_Boltzmann*temp)) #cm^2/s
-    elif (typeChar == 'i' or typeChar == 'I'): #use interstitial formula
-        return (1.0/6) * (lat_param*1e-8)**2 * num_adj_sites * vib_freq * math.exp(-E_jump/(k_Boltzmann*temp)) #TODO: make work for interstitial
-    else:
-        raise Exception("Invalid type character. Choose i or v")
+    return (1.0/6) * (lat_param*1e-8)**2 * num_adj_sites * vib_freq * math.exp(-E_jump/(k_Boltzmann*temp)) #cm^2/s
+
     
 def compute_sink(func, strength, D, x, y, t):
     return strength * D * func[x, y, t]
