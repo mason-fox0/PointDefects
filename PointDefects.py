@@ -16,6 +16,7 @@ Numerical Method: Crank-Nicholson Adams Bashforth IMEX Scheme
 import math
 import numpy as np
 import scipy.sparse as sp
+import scipy.sparse.linalg
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize as nm
 
@@ -33,7 +34,7 @@ def main():
     recomb_num = 100    #normally 50-500 depending on material, structure, and interstitial config (# energy permissible combinations of jumps for recombination)
     lattice_parameter = 3.57    #Angstroms (cm ^-8)
     E_v_jump_threshold = 0.93    #ev/atom, energy required for vacancy to relocate to another site in lattice structure
-    E_i_jump_threshold = 5      #ev/atom, energy required for interstitial to diffuse #TODO: find a real value
+    E_i_jump_threshold = 2.1      #ev/atom, energy required for interstitial to diffuse #TODO: find a real value
     E_disp_threshold = 40    #eV, energy required to produce a vacancy-interstitial pair.
     E_incident = 1e6    #eV (assumes monoenergetic incident radiation)
     temperature = 800   #K
@@ -52,7 +53,7 @@ def main():
     s = 1 #cm (side length of square domain)
     thickness = 0.1 #cm
     
-    numXnodes = 21 #note: this includes zero and final time points
+    numXnodes = 101 #note: this includes zero and final time points
     numYnodes = numXnodes #force same spatial step sizes for simplicity
     xmin = 0        #cm
     xmax = s    #cm
@@ -64,7 +65,7 @@ def main():
     #time discretization
     t_start = 0
     t_end = 10  #seconds
-    numdT = 1001
+    numdT = 101
     t, stepT = np.linspace(t_start, t_end, numdT, retstep=True)
     
     #spatial discretization/mesh
@@ -104,23 +105,21 @@ def main():
        
     gen = atomic_density * flux_to_DPA(flux, displacement_cross_section, mass_num, E_incident, E_disp_threshold)
     
-    
-    #TODO solver - need an implicit or IMEX method
     alpha = [D_v * stepT / (2 * stepX**2), D_i * stepT / (2*stepX**2)]  #combine leading coefficient in CN method for simpler notation. (Note: alpha different for vacancy/interstitial)
-    n = numXnodes - 2
-    m = numYnodes - 2
+    m = numXnodes-2
+    k = numYnodes-2 #excludes BC terms
     
-    #build vacancy matrix (store as sparse for memory savings)
-    diag_main = np.repeat(1-4*alpha[0], n) #produce a vector of length n with all elements 1-4*alpha
-    diag_upper_lower = (alpha[0], n-1) #produce a vector of length n-1 for upper/lower diags
-    diag_next_upper_lower = [alpha[0], ] #TODO: how many elements in the secondary diags???
-    A_v = np.zeros(n, m) #build matrix for implicit step (doesn't include boundaries)
-    
+    #build (m*k)x(m*k) vacancy matrix (store as sparse for memory savings)
+    ones = np.ones(m*k) #vector filled with ones to build diagonals
+    diag_entries = np.array([(1-4*alpha[0])*ones, alpha[0]*ones, alpha[0]*ones, alpha[0]*ones, alpha[0]*ones]) #need main diag, two adjacent diags, and two additional diags
+    offsets = np.array([0, -1, 1, k, -k])
+    A_v = sp.dia_array((diag_entries, offsets), shape=(m,k)) #construct array in sparse form
     
     
     #build interstitial matrix
-    A_i = np.zeros(n, m)
-    
+    diag_entries = np.array([(1-4*alpha[1])*ones, alpha[1]*ones, alpha[1]*ones, alpha[1]*ones, alpha[1]*ones]) #need main diag, two adjacent diags, and two additional diags
+    offsets = np.array([0, -1, 1, k, -k])
+    A_i = sp.dia_array((diag_entries, offsets), shape=(m,k)) #construct array in sparse form
     
     for t_iter in range(1, numdT-1):
         for x_iter in range(0, numXnodes-1):
@@ -128,9 +127,11 @@ def main():
                 
                 recomb = compute_recomb(ci, cv, K_IV, x_iter, y_iter, t_iter-1)
                 
-                #code CNAB here
+                #TODO: code AB2 here
+                b_v = np.zeros(m)
                 
-                
+        x = sp.linalg.spsolve(A_v, b_v)
+        print(x)
             
         if (t_iter % plot_freq == 0 or t_iter == numdT-2): #plot and save png
             plt.figure(figsize = (8,4))
