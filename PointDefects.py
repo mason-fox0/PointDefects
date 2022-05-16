@@ -23,7 +23,7 @@ from matplotlib.colors import Normalize as nm
 
 def main():
     #sim parameters
-    plot_freq = 1  #wait this many time iterations before plotting
+    plot_freq = 5  #wait this many time iterations before plotting
     
     #set material properties
     flux = 1e8    #particles/cm^2*s
@@ -53,10 +53,10 @@ def main():
     s = 1 #cm (side length of square domain)
     thickness = 0.1 #cm
     
-    numXnodes = 101 #note: this includes zero and final time points
+    numXnodes = 5 #note: this includes zero and final time points
     numYnodes = numXnodes #force same spatial step sizes for simplicity
     xmin = 0        #cm
-    xmax = s    #cm
+    xmax = s        #cm
     ymin = 0        #cm
     ymax = s        #cm
     num_atoms = (ymax-ymin)*(xmax-xmin)*thickness #doesn't do anything at the moment
@@ -103,7 +103,7 @@ def main():
     
    ############################################################
        
-    gen = atomic_density * flux_to_DPA(flux, displacement_cross_section, mass_num, E_incident, E_disp_threshold)
+    gen = atomic_density * flux_to_DPA(flux, displacement_cross_section, mass_num, E_incident, E_disp_threshold) #TODO second check
     
     alpha = [D_v * stepT / (2 * stepX**2), D_i * stepT / (2*stepX**2)]  #combine leading coefficient in CN method for simpler notation. (Note: alpha different for vacancy/interstitial)
     m = numXnodes-2
@@ -121,16 +121,28 @@ def main():
     offsets = np.array([0, -1, 1, k, -k])
     A_i = sp.dia_array((diag_entries, offsets), shape=(m,k)) #construct array in sparse form
     
+    #start AB2 multistep method
+    #TODO
+    
     for t_iter in range(1, numdT-1):
         for x_iter in range(0, numXnodes-1):
             for y_iter in range(0, numYnodes-1):
                 
-                recomb = compute_recomb(ci, cv, K_IV, x_iter, y_iter, t_iter-1)
+                recomb_now = compute_recomb(ci, cv, K_IV, x_iter, y_iter, t_iter-1)
+                recomb_prev = compute_recomb(ci, cv, K_IV, x_iter, y_iter, t_iter-2)
                 
                 #TODO: code AB2 here
-                b_v = np.zeros(m)
+                F_v = np.zeros(m*k)
+                F_v[x_iter+y_iter] = 3/2 * (gen - recomb_now - compute_sink(cv, sinkStrength_v, D_v, x_iter, y_iter, t_iter - 1)) + 1/2 * (gen - recomb_prev - compute_sink(cv, sinkStrength_v, D_v, x_iter, y_iter, t_iter - 2))
                 
-        x = sp.linalg.spsolve(A_v, b_v)
+                #construct b matrix
+                b_v = np.zeros(m*k)
+                b_v[x_iter+y_iter] = F_v[x_iter+y_iter] + (1-4*alpha[0]) * cv[x_iter, y_iter, t_iter-1] + alpha[0] * cv[x_iter+1, y_iter, t_iter-1] + alpha[0] * cv[x_iter-1, y_iter, t_iter-1] + alpha[0] * cv[x_iter, y_iter-1, t_iter-1] + alpha[0] * cv[x_iter, y_iter+1, t_iter-1]
+                
+        x = sp.linalg.spsolve(A_v, b_v) #matrix dimensions apparently incompatible
+        
+        #TODO map x to cv
+        
         print(x)
             
         if (t_iter % plot_freq == 0 or t_iter == numdT-2): #plot and save png
@@ -169,7 +181,6 @@ def compute_diff(lat_param, num_adj_sites, mass_num, E_jump, temp): #compute dif
     
     return (1.0/6) * (lat_param*1e-8)**2 * num_adj_sites * vib_freq * math.exp(-E_jump/(k_Boltzmann*temp)) #cm^2/s
 
-    
 def compute_sink(func, strength, D, x, y, t):
     return strength * D * func[x, y, t]
 
