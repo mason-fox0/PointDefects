@@ -25,20 +25,19 @@ from matplotlib.colors import Normalize as nm
 def main():
     ####inputs
     #plot parameters
-    plot_freq = 10  #wait this many time iterations before plotting
+    plot_freq = 1  #wait this many time iterations before plotting
     fig_size = (8,4) #size of saved plots; (x,y) in inches
     fig_dpi = 300 #pixels per inch (affects plot quality and file size)
     
     
     #sim time
     t_start = 0
-    t_end = 1  #seconds
-    numTnodes = 101    #includes t=0, t = t_end;   number of time steps = numTnodes - 1
+    t_end = 4  #seconds
+    numTnodes = 201    #includes t=0, t = t_end;   number of time steps = numTnodes - 1
     
     
     #geometry size - square
     side_length = 1 #cm
-    thickness = 0.1 #cm
     numSpatialNodes = 11
     
     #set material properties
@@ -62,9 +61,8 @@ def main():
     ####setup
     #calculate macro material parameters
     atomic_density = density * 6.022e23 / mass_num   #atoms/cm^3
-    macro_disp_cross_section = atomic_density * displacement_cross_section #cm^-1 ; probability of interaction per unit length traveled (doesn't do anything at the moment)
-    sinkStrength_i = 150
-    sinkStrength_v = 100
+    sinkStrength_i = 0
+    sinkStrength_v = 0
     D_i = compute_diff(lattice_parameter, adjacent_lattice_sites, mass_num, E_i_jump_threshold, temperature)
     D_v = compute_diff(lattice_parameter, adjacent_lattice_sites, mass_num, E_v_jump_threshold, temperature)
     K_IV = recomb_num * (D_i + D_v) / (lattice_parameter)**2
@@ -77,7 +75,6 @@ def main():
     xmax = side_length      #cm
     ymin = 0                #cm
     ymax = side_length       #cm
-    num_atoms = (ymax-ymin)*(xmax-xmin)*thickness #doesn't do anything at the moment
     
     
     #time discretization
@@ -128,7 +125,7 @@ def main():
     firstrow = np.zeros((m*k)*(m*k)) #characterize toeplitz matrix (constant diag matrix) with first row, first column (these should be the same)
     firstrow[0] = (1-4*alpha[0])
     firstrow[1] = alpha[0]
-    firstrow[m+1] = alpha[0]
+    firstrow[m] = alpha[0]
     A_v = sp.linalg.toeplitz(firstrow) #build matrix
     A_v[:,numYnodes-1] = 0
     A_v[numXnodes-1,:] = 0
@@ -142,16 +139,19 @@ def main():
     
     gen = int(atomic_density * flux_to_DPA(flux, displacement_cross_section, mass_num, E_incident, E_disp_threshold))
     
+    #start first timestep
+    cv[:,:,1] = stepT*gen
+    ci[:,:,1] = stepT*gen
+    
     for t_iter in range(2, numTnodes):
         F_v = np.zeros((m*k)*(m*k)) #reset
         b_v = np.zeros((m*k)*(m*k))
-        b_v[0] = stepT*gen #start with euler's method (note b_v[0] = zero, as well as other terms for j=1)
+        b_v[0] = stepT*gen #start with euler's method
         
         F_i = np.zeros((m*k)*(m*k))
         b_i = np.zeros((m*k)*(m*k))
-        b_i[0] = stepT*gen #start with euler's method (note b_v[0] = zero, as well as other terms for j=1)
+        b_i[0] = stepT*gen #start with euler's method (note b_i[0] = zero, as well as other terms for j=1)
         
-        #TODO: tracking of j and nodes incompatible, fix
         j=1 #counter for terms in b matrix
         for x_iter in range(1, numXnodes-1): #not inclusive of final iteration (numXnodes)
             for y_iter in range(1, numYnodes-1):
@@ -183,7 +183,7 @@ def main():
             ci[i, 1:m+1, t_iter] = x_i[first:last]
             
             first = last + 1
-        
+              
         if (t_iter % plot_freq == 0 or t_iter == numTnodes-1): #plot and save png
             plot_and_save(ci, cv, numXnodes-1, numYnodes-1, t_iter, stepT, fig_size, fig_dpi)
             
