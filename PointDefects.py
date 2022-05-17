@@ -30,8 +30,8 @@ def main():
     
     #sim time
     t_start = 0
-    t_end = 50  #seconds
-    numTnodes = 501    #includes t=0, t = t_end;   number of time steps = numTnodes - 1
+    t_end = 10  #seconds
+    numTnodes = 1001    #includes t=0, t = t_end;   number of time steps = numTnodes - 1
     
     
     #geometry size - square
@@ -69,7 +69,7 @@ def main():
     
     
     #define geometry
-    numXnodes = 21 #note: this includes zero and final spatial point
+    numXnodes = 11 #note: this includes zero and final spatial point
     numYnodes = numXnodes #force same spatial step sizes for simplicity
     xmin = 0                #cm
     xmax = side_length      #cm
@@ -83,7 +83,7 @@ def main():
     
     
     #spatial discretization/mesh
-    ci = np.zeros((numXnodes, numYnodes, numTnodes), dtype=float) #initial values all zero
+    ci = np.ones((numXnodes, numYnodes, numTnodes), dtype=float) #initial values all zero
     cv = np.zeros((numXnodes, numYnodes, numTnodes), dtype=float)
     x, stepX = np.linspace(xmin, xmax, num=numXnodes, retstep=True)
     y, stepY = np.linspace(ymin, ymax, num=numYnodes, retstep=True)
@@ -117,9 +117,9 @@ def main():
     
     
     
-    #solver step   
-    m = numXnodes-2
-    k = numYnodes-2 #excludes BC terms
+    #solver
+    m = numXnodes-1
+    k = numYnodes-1 #excludes BC terms
     
     alpha = [D_v * stepT / (2 * stepX**2), D_i * stepT / (2*stepX**2)]  #combine leading coefficient in CN method for simpler notation. (Note: alpha different for vacancy/interstitial)
     
@@ -130,31 +130,38 @@ def main():
     firstrow[m+1] = alpha[0]
     A_v = sp.linalg.toeplitz(firstrow) #build matrix
     
-    #build interstitial matrix (maybe I should do this with toeplitz?)
+    #build interstitial matrix
+    firstrow = np.zeros(m*k) #characterize toeplitz matrix with first row, first column (these should be the same)
+    firstrow[0] = (1-4*alpha[1])
+    firstrow[1] = alpha[1]
+    firstrow[m+1] = alpha[1]
+    A_i = sp.linalg.toeplitz(firstrow) #build matrix
     
     gen = atomic_density * flux_to_DPA(flux, displacement_cross_section, mass_num, E_incident, E_disp_threshold)   #TODO second check
     
     #TODO starter step for AB2 multistep method
-    for t_iter in range(2, numTnodes-1):
-        F_v = np.zeros(m*k)
-        j=0
+    for t_iter in range(2, numTnodes):
+        F_v = np.zeros(m*k) #reset
+        b_v = np.zeros(m*k)
+        b_v[1] = stepT*gen #start with euler's method (note b_v[0] = zero, as well as other terms for j=1)
+        #TODO: tracking of j and nodes incompatible. if statement???
+        j=2 #counter for terms in b matrix
         for x_iter in range(1, numXnodes-1):
             for y_iter in range(1, numYnodes-1):
                 
                 F_v[j] = 3/2 * dcdt(cv, ci, gen, D_v, K_IV, sinkStrength_v, x_iter, y_iter, t_iter-1) - 1/2 * dcdt(cv, ci, gen, D_v, K_IV, sinkStrength_v, x_iter, y_iter, t_iter-2)
                 
-                #construct b matrix
-                b_v = np.zeros(m*k)
-                b_v[x_iter+y_iter] = stepT * F_v[j] + (1-4*alpha[0]) * cv[x_iter, y_iter, t_iter-1] + alpha[0] * cv[x_iter+1, y_iter, t_iter-1] + alpha[0] * cv[x_iter-1, y_iter, t_iter-1] + alpha[0] * cv[x_iter, y_iter-1, t_iter-1] + alpha[0] * cv[x_iter, y_iter+1, t_iter-1]
+                b_v[j] = stepT * F_v[j] + (1-4*alpha[0]) * cv[x_iter, y_iter, t_iter-1] + alpha[0] * cv[x_iter+1, y_iter, t_iter-1] + alpha[0] * cv[x_iter-1, y_iter, t_iter-1] + alpha[0] * cv[x_iter, y_iter-1, t_iter-1] + alpha[0] * cv[x_iter, y_iter+1, t_iter-1]
                 
                 j=j+1
                 
-        x_v, converged_code = sp.sparse.linalg.minres(A_v, b_v) #solve system with efficient iterative method
+                
+        x_v, converged_code = sp.sparse.linalg.gmres(A_v, b_v) #solve system with efficient iterative method
         
         if (converged_code != 0):
             raise RuntimeError('Failed to converge!')
         
-        #TODO map x to c row by row
+        #map x to c row by row
         for i in range(1, m):
             cv[1:(m+1), i, t_iter] = x_v[m*(i-1):m*i]
         
@@ -206,7 +213,7 @@ def plot_and_save(ci, cv, t, time_step, figsize, imgdpi):
     plt.colorbar()
             
     filename = "".join(["PointDefects",str(t),".png"]) #tuple -> string
-    #plt.savefig(filename, dpi=imgdpi)
+    plt.savefig(filename, dpi=imgdpi)
     plt.show()
 
 
