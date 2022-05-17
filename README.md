@@ -13,6 +13,12 @@ Method: Crank-Nicholson Adams-Bashforth (2 step) IMEX Scheme (Finite Difference)
 
 Output: Graphics of defect behavior over time
 
+Required Dependencies:
+-Python 3.0+
+-Scipy
+-Numpy
+-Matplotlib
+
 References:
 D. Olander, A. Motta - Ch 5,12,13 - Light Water Reactor Materials Vol. I (2017)
 
