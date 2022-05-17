@@ -25,15 +25,15 @@ from matplotlib.colors import Normalize as nm
 def main():
     ####inputs
     #plot parameters
-    plot_freq = 1  #wait this many time iterations before plotting
+    plot_freq = 10  #wait this many time iterations before plotting
     fig_size = (8,4) #size of saved plots; (x,y) in inches
     fig_dpi = 300 #pixels per inch (affects plot quality and file size)
     
     
     #sim time
     t_start = 0
-    t_end = 10  #seconds
-    numTnodes = 201    #includes t=0, t = t_end;   number of time steps = numTnodes - 1
+    t_end = 1  #seconds
+    numTnodes = 101    #includes t=0, t = t_end;   number of time steps = numTnodes - 1
     
     
     #geometry size - square
@@ -42,7 +42,7 @@ def main():
     numSpatialNodes = 11
     
     #set material properties
-    flux = 1e8    #particles/cm^2*s
+    flux = 1e6    #particles/cm^2*s
     displacement_cross_section = 100 * 1e-24   #cm^-2; 316 Stainless Steel, 1 MeV neutron (Iwamoto et. al, 2013, Fig 5) - https://doi.org/10.1080/00223131.2013.851042 
     density = 7.99  #g/cm^3; 316 stainless steel
     mass_num = 56 #iron
@@ -50,8 +50,8 @@ def main():
     recomb_num = 100    #normally 50-500 depending on material, structure, and interstitial config (# energy permissible combinations of jumps for recombination)
     lattice_parameter = 3.57    #Angstroms (cm ^-8)
     E_v_jump_threshold = 0.93    #ev/atom, energy required for vacancy to relocate to another site in lattice structure
-    E_i_jump_threshold = 1.5     #ev/atom, energy required for interstitial to diffuse #TODO: find a real value
-    E_disp_threshold = 40    #eV, energy required to produce a vacancy-interstitial pair.
+    E_i_jump_threshold = 2.1     #ev/atom, energy required for interstitial to diffuse #TODO: find a real value
+    E_disp_threshold = 10    #eV, energy required to produce a vacancy-interstitial pair.
     E_incident = 1e6    #eV (assumes monoenergetic incident radiation)
     temperature = 600   #K
     ####end inputs
@@ -62,9 +62,9 @@ def main():
     ####setup
     #calculate macro material parameters
     atomic_density = density * 6.022e23 / mass_num   #atoms/cm^3
-    macro_disp_cross_section = atomic_density * displacement_cross_section #cm^-1 ; probability of interaction per unit length traveled
-    sinkStrength_i = 0.5
-    sinkStrength_v = 0.5
+    macro_disp_cross_section = atomic_density * displacement_cross_section #cm^-1 ; probability of interaction per unit length traveled (doesn't do anything at the moment)
+    sinkStrength_i = 150
+    sinkStrength_v = 100
     D_i = compute_diff(lattice_parameter, adjacent_lattice_sites, mass_num, E_i_jump_threshold, temperature)
     D_v = compute_diff(lattice_parameter, adjacent_lattice_sites, mass_num, E_v_jump_threshold, temperature)
     K_IV = recomb_num * (D_i + D_v) / (lattice_parameter)**2
@@ -72,7 +72,7 @@ def main():
     
     #define geometry
     numXnodes = numSpatialNodes #note: this includes zero and final spatial point
-    numYnodes = numXnodes #force same spatial step sizes for simplicity
+    numYnodes = numSpatialNodes #force same spatial step sizes for simplicity of CN method
     xmin = 0                #cm
     xmax = side_length      #cm
     ymin = 0                #cm
@@ -100,8 +100,7 @@ def main():
     cv[:,numYnodes-1, :] = 0
     ci[numXnodes-1,:, :] = 0
     cv[numXnodes-1,:, :] = 0
-        
-
+    
     #print important parameters
     print("Simulation Parameters *****************")
     print("Simulation Time: ", t_end)
@@ -120,40 +119,41 @@ def main():
     
     
     #solver
-    m = numXnodes-1
-    k = numYnodes-1 #excludes BC terms
+    m = numXnodes-3
+    k = numYnodes-3 #excludes BC terms
     
     alpha = [D_v * stepT / (2 * stepX**2), D_i * stepT / (2*stepX**2)]  #combine leading coefficient in CN method for simpler notation. (Note: alpha different for vacancy/interstitial)
     
     #build (m*k)x(m*k) vacancy matrix
-    firstrow = np.zeros(m*k) #characterize toeplitz matrix (constant diag matrix) with first row, first column (these should be the same)
+    firstrow = np.zeros((m*k)*(m*k)) #characterize toeplitz matrix (constant diag matrix) with first row, first column (these should be the same)
     firstrow[0] = (1-4*alpha[0])
     firstrow[1] = alpha[0]
     firstrow[m+1] = alpha[0]
     A_v = sp.linalg.toeplitz(firstrow) #build matrix
+    A_v[:,numYnodes-1] = 0
+    A_v[numXnodes-1,:] = 0
     
     #build interstitial matrix
-    firstrow = np.zeros(m*k) #characterize toeplitz matrix with first row, first column (these should be the same)
+    firstrow = np.zeros((m*k)*(m*k)) #characterize toeplitz matrix with first row, first column (these should be the same)
     firstrow[0] = (1-4*alpha[1])
     firstrow[1] = alpha[1]
-    firstrow[m+1] = alpha[1]
+    firstrow[m] = alpha[1]
     A_i = sp.linalg.toeplitz(firstrow) #build matrix
     
-    gen = int(atomic_density * flux_to_DPA(flux, displacement_cross_section, mass_num, E_incident, E_disp_threshold))   #TODO second check
+    gen = int(atomic_density * flux_to_DPA(flux, displacement_cross_section, mass_num, E_incident, E_disp_threshold))
     
-    #TODO starter step for AB2 multistep method
     for t_iter in range(2, numTnodes):
-        F_v = np.zeros(m*k) #reset
-        b_v = np.zeros(m*k)
-        b_v[1] = stepT*gen #start with euler's method (note b_v[0] = zero, as well as other terms for j=1)
+        F_v = np.zeros((m*k)*(m*k)) #reset
+        b_v = np.zeros((m*k)*(m*k))
+        b_v[0] = stepT*gen #start with euler's method (note b_v[0] = zero, as well as other terms for j=1)
         
-        F_i = np.zeros(m*k)
-        b_i = np.zeros(m*k)
-        b_i[1] = stepT*gen #start with euler's method (note b_v[0] = zero, as well as other terms for j=1)
+        F_i = np.zeros((m*k)*(m*k))
+        b_i = np.zeros((m*k)*(m*k))
+        b_i[0] = stepT*gen #start with euler's method (note b_v[0] = zero, as well as other terms for j=1)
         
         #TODO: tracking of j and nodes incompatible, fix
-        j=2 #counter for terms in b matrix
-        for x_iter in range(1, numXnodes-1):
+        j=1 #counter for terms in b matrix
+        for x_iter in range(1, numXnodes-1): #not inclusive of final iteration (numXnodes)
             for y_iter in range(1, numYnodes-1):
                 
                 F_v[j] = 3/2 * dcdt(cv, ci, gen, D_v, K_IV, sinkStrength_v, x_iter, y_iter, t_iter-1) - 1/2 * dcdt(cv, ci, gen, D_v, K_IV, sinkStrength_v, x_iter, y_iter, t_iter-2)
@@ -165,8 +165,8 @@ def main():
                 j=j+1
                 
                 
-        x_v, exitcode_v = sp.sparse.linalg.gmres(A_v, b_v) #solve system with efficient iterative method
-        x_i, exitcode_i = sp.sparse.linalg.gmres(A_i, b_i)
+        x_v, exitcode_v = sp.sparse.linalg.minres(A_v, b_v, check=True) #solve system with efficient iterative method
+        x_i, exitcode_i = sp.sparse.linalg.minres(A_i, b_i, check=True)
         
         if (exitcode_v or exitcode_i != 0):
             raise RuntimeError('Failed to converge!')
@@ -176,13 +176,16 @@ def main():
         x_v = np.where(x_v<0, 0, x_v)
         
         #map x to concentration row by row
-        for i in range(1, m):
-            cv[1:(m+1), i, t_iter] = x_v[m*(i-1):m*i]
-            ci[1:(m+1), i, t_iter] = x_i[m*(i-1):m*i]
-        
+        first = 1
+        for i in range(1, k+1):
+            last = first+k
+            cv[i, 1:m+1, t_iter] = x_v[first:last]
+            ci[i, 1:m+1, t_iter] = x_i[first:last]
+            
+            first = last + 1
         
         if (t_iter % plot_freq == 0 or t_iter == numTnodes-1): #plot and save png
-            plot_and_save(ci, cv, t_iter, stepT, fig_size, fig_dpi)
+            plot_and_save(ci, cv, numXnodes-1, numYnodes-1, t_iter, stepT, fig_size, fig_dpi)
             
     print("Done!")
     
@@ -209,24 +212,27 @@ def compute_recomb(c1, c2, KIV, x, y, t):
 def dcdt(c1, c2, gen, D, KIV, sinkstrength, x, y, t): #note: this function excludes diffusion
     return gen - compute_recomb(c1, c2, KIV, x, y, t) - compute_sink(c1, sinkstrength, D, x, y, t)
 
-def plot_and_save(ci, cv, t, time_step, figsize, imgdpi):
+def plot_and_save(ci, cv, xmax, ymax, t, time_step, figsize, imgdpi):
     plt.figure(figsize = (8,4))
-    conc = np.transpose(ci[:,:,t]) #transpose to make x/y axis plot correctly
+    conc = ci[:,:,t]
     time = "".join(["Time: ", str(r'{:.3f}'.format(t*time_step)), " sec"]) #tuple -> string, keep following zeros after decimal point
     plt.suptitle(time)
+    plt.xlim(0,xmax)
+    plt.ylim(0,ymax)
     plt.subplot(1,2,1)
     
     plt.pcolormesh(conc,edgecolors='none', norm=nm())        #plot without shading
-    #plt.pcolormesh(conc,edgecolors='none', norm=nm(), shading='gouraud') #plot with shading
     plt.title("Interstitial Conc. (cm^-3)")
     plt.colorbar()
-            
+    plt.xlim(0,xmax)
+    plt.ylim(0,ymax)
     plt.subplot(1,2,2)
-    conc = np.transpose(cv[:,:,t]) #transpose to make x/y axis plot correctly
-            
+    
+    conc = cv[:,:,t]   
     plt.pcolormesh(conc,edgecolors='none', norm=nm())   #plot without shading
-    #plt.pcolormesh(conc,edgecolors='none', norm=nm(), shading='gouraud') #plot with shading
     plt.title("Vacancy Conc. (cm^-3)")
+    plt.xlim(0,xmax)
+    plt.ylim(0,ymax)
     plt.colorbar()
             
     filename = "".join(["PointDefects",str(t),".png"]) #tuple -> string
