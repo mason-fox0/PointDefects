@@ -33,13 +33,13 @@ def main():
     #sim time
     t_start = 0
     t_end = 10  #seconds
-    numTnodes = 101    #includes t=0, t = t_end;   number of time steps = numTnodes - 1
+    numTnodes = 201    #includes t=0, t = t_end;   number of time steps = numTnodes - 1
     
     
     #geometry size - square
     side_length = 1 #cm
     thickness = 0.1 #cm
-    numSpatialNodes = 51
+    numSpatialNodes = 11
     
     #set material properties
     flux = 1e8    #particles/cm^2*s
@@ -63,15 +63,15 @@ def main():
     #calculate macro material parameters
     atomic_density = density * 6.022e23 / mass_num   #atoms/cm^3
     macro_disp_cross_section = atomic_density * displacement_cross_section #cm^-1 ; probability of interaction per unit length traveled
-    sinkStrength_i = 0
-    sinkStrength_v = 0
+    sinkStrength_i = 0.5
+    sinkStrength_v = 0.5
     D_i = compute_diff(lattice_parameter, adjacent_lattice_sites, mass_num, E_i_jump_threshold, temperature)
     D_v = compute_diff(lattice_parameter, adjacent_lattice_sites, mass_num, E_v_jump_threshold, temperature)
     K_IV = recomb_num * (D_i + D_v) / (lattice_parameter)**2
     
     
     #define geometry
-    numXnodes = 51 #note: this includes zero and final spatial point
+    numXnodes = numSpatialNodes #note: this includes zero and final spatial point
     numYnodes = numXnodes #force same spatial step sizes for simplicity
     xmin = 0                #cm
     xmax = side_length      #cm
@@ -171,7 +171,11 @@ def main():
         if (exitcode_v or exitcode_i != 0):
             raise RuntimeError('Failed to converge!')
         
-        #map x to c row by row
+        #disallow negative concentrations
+        x_i = np.where(x_i<0, 0, x_i) #for all negative elements in vector, replace with zero
+        x_v = np.where(x_v<0, 0, x_v)
+        
+        #map x to concentration row by row
         for i in range(1, m):
             cv[1:(m+1), i, t_iter] = x_v[m*(i-1):m*i]
             ci[1:(m+1), i, t_iter] = x_i[m*(i-1):m*i]
