@@ -7,16 +7,15 @@ Created on Mon Apr  4 09:34:13 2022
 Written for the final project of MATH 578 at UTK - Spring 2022
 Purpose: Simulate the diffusion of point defects (vacancies and interstitials) in a material subject to irradiation damage.
 
-Inputs: plotting frequency, radiation flux density, incident radiation energy, temperature, material properties (macro and atomic scale), threshold energies, material geometry, number of spatial nodes, number of time points desired.
+Inputs: plotting parameters, radiation flux density, incident radiation energy, temperature, material properties (macro and atomic scale), threshold energies, material geometry, number of spatial nodes, number of time points desired.
 Outputs: Vacancy and Interstitial concentrations plotted as a function of space
 
-Numerical Method: Crank-Nicholson Adams Bashforth IMEX Scheme
+Numerical Method: Crank-Nicholson Adams Bashforth (2-step) IMEX Scheme
 """
 
 import math
 import numpy as np
-import scipy.sparse as sp
-import scipy.sparse.linalg
+import scipy as sp
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize as nm
 
@@ -28,14 +27,17 @@ def main():
     fig_size = (8,4) #size of saved plots; (x,y) in inches
     fig_dpi = 300 #pixels per inch (affects plot quality and file size)
     
+    
     #sim time
     t_start = 0
-    t_end = 100  #seconds
-    numTnodes = 1001    #includes t=0, t = t_end;   number of time steps = numTnodes - 1
+    t_end = 50  #seconds
+    numTnodes = 501    #includes t=0, t = t_end;   number of time steps = numTnodes - 1
+    
     
     #geometry size - square
     side_length = 1 #cm
     thickness = 0.1 #cm
+    
     
     #set material properties
     flux = 1e8    #particles/cm^2*s
@@ -46,11 +48,14 @@ def main():
     recomb_num = 100    #normally 50-500 depending on material, structure, and interstitial config (# energy permissible combinations of jumps for recombination)
     lattice_parameter = 3.57    #Angstroms (cm ^-8)
     E_v_jump_threshold = 0.93    #ev/atom, energy required for vacancy to relocate to another site in lattice structure
-    E_i_jump_threshold = 2.1      #ev/atom, energy required for interstitial to diffuse #TODO: find a real value
+    E_i_jump_threshold = 1.5     #ev/atom, energy required for interstitial to diffuse #TODO: find a real value
     E_disp_threshold = 40    #eV, energy required to produce a vacancy-interstitial pair.
     E_incident = 1e6    #eV (assumes monoenergetic incident radiation)
     temperature = 800   #K
     ####end inputs
+    
+    
+    
     
     ####setup
     #calculate macro material parameters
@@ -62,8 +67,9 @@ def main():
     D_v = compute_diff(lattice_parameter, adjacent_lattice_sites, mass_num, E_v_jump_threshold, temperature)
     K_IV = recomb_num * (D_i + D_v) / (lattice_parameter)**2
     
+    
     #define geometry
-    numXnodes = 11 #note: this includes zero and final spatial point
+    numXnodes = 21 #note: this includes zero and final spatial point
     numYnodes = numXnodes #force same spatial step sizes for simplicity
     xmin = 0                #cm
     xmax = side_length      #cm
@@ -75,13 +81,13 @@ def main():
     #time discretization
     t, stepT = np.linspace(t_start, t_end, numTnodes, retstep=True)
     
+    
     #spatial discretization/mesh
     ci = np.zeros((numXnodes, numYnodes, numTnodes), dtype=float) #initial values all zero
     cv = np.zeros((numXnodes, numYnodes, numTnodes), dtype=float)
     x, stepX = np.linspace(xmin, xmax, num=numXnodes, retstep=True)
     y, stepY = np.linspace(ymin, ymax, num=numYnodes, retstep=True)
-    print(x)
-    print(y)
+    
     
     #BCs
     ci[:,0,:] = 0   #dirichlet
@@ -92,9 +98,8 @@ def main():
     cv[:,numYnodes-1, :] = 0
     ci[numXnodes-1,:, :] = 0
     cv[numXnodes-1,:, :] = 0
-    
+        
 
-    
     #print important parameters
     print("Simulation Parameters *****************")
     print("Simulation Time: ", t_end)
@@ -102,7 +107,6 @@ def main():
     print("X step: ", stepX)
     print("Y step: ", stepY)
     print("Plot Update Freq: ", plot_freq, " iterations")
-    
     print("Material Parameters ********************")
     print("Vacancy Diffusion Coefficient: ", D_v)
     print("Interstitial Diffusion Coefficient: ", D_i)
@@ -110,43 +114,42 @@ def main():
     print("Radiation Flux: ", flux)
     print("****************************************\n")
     
-############################################################
+    
+    
+    
     #solver step   
     m = numXnodes-2
     k = numYnodes-2 #excludes BC terms
     
     alpha = [D_v * stepT / (2 * stepX**2), D_i * stepT / (2*stepX**2)]  #combine leading coefficient in CN method for simpler notation. (Note: alpha different for vacancy/interstitial)
     
-    #build (m*k)x(m*k) vacancy matrix (store as sparse for memory savings)
-    ones = np.ones(m*k) #vector filled with ones to build diagonals
-    diag_entries = np.array([(1-4*alpha[0])*ones, alpha[0]*ones, alpha[0]*ones, alpha[0]*ones, alpha[0]*ones]) #need main diag, two adjacent diags, and two additional diags
-    offsets = np.array([0, -1, 1, k-1, -(k-1)])
-    A_v = sp.dia_array((diag_entries, offsets), shape=(m*k,m*k)) #construct array in sparse form
-    print(A_v.todense())
+    #build (m*k)x(m*k) vacancy matrix
+    firstrow = np.zeros(m*k) #characterize toeplitz matrix with first row, first column (these should be the same)
+    firstrow[0] = (1-4*alpha[0])
+    firstrow[1] = alpha[0]
+    firstrow[m+1] = alpha[0]
+    A_v = sp.linalg.toeplitz(firstrow) #build matrix
     
     #build interstitial matrix (maybe I should do this with toeplitz?)
-    diag_entries = np.array([(1-4*alpha[1])*ones, alpha[1]*ones, alpha[1]*ones, alpha[1]*ones, alpha[1]*ones]) #need main diag, two adjacent diags, and two additional off-band diags
-    offsets = np.array([0, -1, 1, k, -k])
-    A_i = sp.dia_array((diag_entries, offsets), shape=(m*k,m*k)) #construct array in sparse form
     
     gen = atomic_density * flux_to_DPA(flux, displacement_cross_section, mass_num, E_incident, E_disp_threshold)   #TODO second check
     
     #TODO starter step for AB2 multistep method
-    #F_v[0:2] = 
-    
-    for t_iter in range(1, numTnodes-1):
-        for x_iter in range(0, numXnodes-1):
-            for y_iter in range(0, numYnodes-1):
+    for t_iter in range(2, numTnodes-1):
+        F_v = np.zeros(m*k)
+        j=0
+        for x_iter in range(1, numXnodes-1):
+            for y_iter in range(1, numYnodes-1):
                 
-                #TODO: code AB2 here
-                F_v = np.zeros(m*k)
-                F_v[x_iter+y_iter] = 3/2 * dcdt(cv, ci, gen, D_v, K_IV, sinkStrength_v, x_iter, y_iter, t_iter-1) - 1/2 * dcdt(cv, ci, gen, D_v, K_IV, sinkStrength_v, x_iter, y_iter, t_iter-2)
+                F_v[j] = 3/2 * dcdt(cv, ci, gen, D_v, K_IV, sinkStrength_v, x_iter, y_iter, t_iter-1) - 1/2 * dcdt(cv, ci, gen, D_v, K_IV, sinkStrength_v, x_iter, y_iter, t_iter-2)
                 
                 #construct b matrix
                 b_v = np.zeros(m*k)
-                b_v[x_iter+y_iter] = F_v[x_iter+y_iter] + (1-4*alpha[0]) * cv[x_iter, y_iter, t_iter-1] + alpha[0] * cv[x_iter+1, y_iter, t_iter-1] + alpha[0] * cv[x_iter-1, y_iter, t_iter-1] + alpha[0] * cv[x_iter, y_iter-1, t_iter-1] + alpha[0] * cv[x_iter, y_iter+1, t_iter-1]
+                b_v[x_iter+y_iter] = stepT * F_v[j] + (1-4*alpha[0]) * cv[x_iter, y_iter, t_iter-1] + alpha[0] * cv[x_iter+1, y_iter, t_iter-1] + alpha[0] * cv[x_iter-1, y_iter, t_iter-1] + alpha[0] * cv[x_iter, y_iter-1, t_iter-1] + alpha[0] * cv[x_iter, y_iter+1, t_iter-1]
                 
-        x_v, converged_code = sp.linalg.minres(A_v, b_v) #solve system with efficient iterative method
+                j=j+1
+                
+        x_v, converged_code = sp.sparse.linalg.minres(A_v, b_v) #solve system with efficient iterative method
         
         if (converged_code != 0):
             raise RuntimeError('Failed to converge!')
@@ -160,8 +163,10 @@ def main():
             plot_and_save(ci, cv, t_iter, stepT, fig_size, fig_dpi)
             
     print("Done!")
-
-##############functions
+    
+    
+    
+    
 def flux_to_DPA(flux, micro_cs, mass_num, E_neutron, threshold_energy): #calculates displacements per atom per second using Kinchin-Pease model, assumes monoenergetic incident neutrons perpendicular to surface
     transf_param = 4.0*(1*mass_num) / (1+mass_num)**2
     return flux * micro_cs * mass_num * transf_param * E_neutron / (4.0 * threshold_energy) #K-P model; Source: Olander, Motta: LWR materials Vol 1. Ch 12, eqn 12.77
@@ -196,13 +201,14 @@ def plot_and_save(ci, cv, t, time_step, figsize, imgdpi):
     plt.subplot(1,2,2)
     conc = np.transpose(cv[:,:,t]) #transpose to make x/y axis plot correctly
             
-    plt.pcolormesh(conc,edgecolors='none', norm=nm(), shading='gouraud')
+    plt.pcolormesh(conc,edgecolors='none', norm=nm())
     plt.title("Vacancy Conc. (cm^-3)")
     plt.colorbar()
             
     filename = "".join(["PointDefects",str(t),".png"]) #tuple -> string
-    plt.savefig(filename, dpi=imgdpi)
+    #plt.savefig(filename, dpi=imgdpi)
     plt.show()
+
 
 #run
 if __name__ == "__main__":
